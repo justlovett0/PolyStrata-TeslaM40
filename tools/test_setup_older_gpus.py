@@ -28,9 +28,22 @@ def card(i, name, vram, arch, driver="580.97"):
 
 V100 = card(0, "Tesla V100-PCIE-32GB", 32.0, "70", "575.57")
 P40 = card(0, "Tesla P40", 24.0, "61", "535.104")
+M40 = card(0, "Tesla M40 24GB", 22.5, "52", "528.89")
 
 
 class Choice(unittest.TestCase):
+    def test_m40_uses_a_local_cuda12_engine(self):
+        self.assertEqual(setup.cuda_choice([52])[0], 12)
+        self.assertEqual(setup.engine_defs([52], 12), ["-DSTRATA_EXPERIMENTAL_SM52=ON"])
+        self.assertIn("only kind", setup.old_gpus_opt_in([M40]))
+        with mock.patch.object(setup, "OLD_GPUS", "the only card"):
+            self.assertIsNone(setup.gpu_problem(M40))
+        with mock.patch.object(setup, "get_prebuilt", side_effect=AssertionError("release binary selected")), \
+                mock.patch.object(setup, "get_llama_cpp", return_value=Path("llama")), \
+                mock.patch.object(setup, "build_engine", return_value=Path("engine-maxwell")) as build:
+            self.assertEqual(setup.get_cuda12_engine("unused", M40, "none", True), Path("engine-maxwell"))
+            self.assertEqual(build.call_args.kwargs["toolkit"], 12)
+
     def test_by_the_oldest_card(self):
         self.assertEqual(setup.cuda_choice(["120"]), (13, None))
         self.assertEqual(setup.cuda_choice([75, 86, 89]), (13, None))

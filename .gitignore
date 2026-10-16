@@ -27,6 +27,7 @@ td.log
 
 # created by setup.py on the user's machine
 /.venv/
+/.tools/
 /build/
 /third_party/llama.cpp
 /models/
@@ -50,6 +51,9 @@ build-vision-cuda12.bat
 # setup.py outputs (engine, downloads) and release builds
 /engine/
 /engine-cuda12/
+/engine-maxwell/
+/build-strata-maxwell.bat
+/build-vision-maxwell.bat
 /engine-poly/
 /build-strata-poly.bat
 /build-vision-poly.bat

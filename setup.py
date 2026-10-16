@@ -1401,12 +1401,21 @@ def sm60_card(arch) -> bool:
     return 60 <= int(arch) <= 70
 
 
+def maxwell_card(arch) -> bool:
+    """The experimental Maxwell target validated by this fork (Tesla M40)."""
+    return int(arch) == 52
+
+
+def maxwell_gpu(g) -> bool:
+    return maxwell_card(g["arch"]) and "Tesla M40" in g["name"] and g["vram_gb"] >= 11.0
+
+
 def old_gpus_opt_in(found, named=(), cuda=None, other=False):
     """Why this run may use Pascal / Volta cards (the experimental CUDA 12 engine), or None.  The cards are an opt-in:
     the user named one (`named`: --gpu / --gpus), asked for --cuda 12, set STRATA_EXPERIMENTAL_SM60=1, or the PC has
     no card the ready-made engine runs on and no supported AMD card (`other`; it used to stop there).  A PC with a
     newer card keeps recommending it."""
-    old = [g for g in found if sm60_card(g["arch"])]
+    old = [g for g in found if sm60_card(g["arch"]) or maxwell_gpu(g)]
     if not old:
         return None
     if os.environ.get("STRATA_EXPERIMENTAL_SM60", "").strip() == "1":
@@ -1437,6 +1446,9 @@ def cuda_choice(archs, cuda=None, poly=False):
     card decides.  `cuda` (--cuda 12|13) overrides it; setup recommends, it does not refuse (the caller warns)."""
     archs = sorted({int(x) for x in archs})
     old = [a for a in archs if a < CUDA13_MIN_ARCH]
+    if 52 in archs and str(cuda) == "13":
+        fail("the Tesla M40 (sm_52) needs CUDA 12; CUDA 13 has no Maxwell code",
+             "omit --cuda 13 or choose --cuda 12")
     if str(cuda) == "13":
         return 13, ("--cuda 13 (as you chose)" + (f"; CUDA 13 has no code for sm_{old[0]}: the engine will not run "
                                                    "on that card" if old else ""))
@@ -1462,10 +1474,11 @@ def config_toolkit(cfg: dict) -> int:
 
 def gpu_problem(g, together=False):
     """Why PolyStrata cannot use this card, in plain words (None: it can)."""
-    if int(g["arch"]) < 75 and not (sm60_card(g["arch"]) and experimental_sm60()):
+    if int(g["arch"]) < 75 and not ((sm60_card(g["arch"]) or maxwell_gpu(g)) and experimental_sm60()):
+        doc = "docs/MAXWELL.md" if maxwell_gpu(g) else "docs/OLDER_GPUS.md" if sm60_card(g["arch"]) else None
         return (f"not supported - older than the RTX 20 series (compute capability {cc(g)}; PolyStrata needs 7.5 or "
                 "newer" + ("; experimental: choose it with --gpu " + str(g["index"]) + " (the CUDA 12 engine, "
-                          "docs/OLDER_GPUS.md)" if sm60_card(g["arch"]) else "") + ")")
+                           + doc + ")" if doc else "") + ")")
     if together and g["vram_gb"] < SPLIT_MIN_VRAM_GB - 0.5:
         return (f"not supported together with other GPUs - {g['vram_gb']:.0f} GB of VRAM (a card sharing the model "
                 f"needs {SPLIT_MIN_VRAM_GB} GB or more)")
@@ -4166,7 +4179,7 @@ def install_build_tools(gpu, yes):
     return nvcc, find_vcvars(cuda_v) if WIN else None
 
 
-def cmake_build(src, bdir, target, defs, vcvars, bat_name):
+def cmake_build(src, bdir, target, defs, vcvars, bat_name, vcvars_args=None):
     cmake, ninja = find_tool("cmake"), find_tool("ninja")
     if cmake is None or ninja is None:
         fail("cmake / ninja not found after installing them", "run: .venv python -m pip install cmake ninja")
@@ -4181,7 +4194,7 @@ def cmake_build(src, bdir, target, defs, vcvars, bat_name):
                  "install them (Visual Studio 2019 or 2022, workload 'Desktop development with C++') and run setup again")
         bat = ROOT / bat_name
         q = lambda c: " ".join(f'"{x}"' if " " in str(x) else str(x) for x in c)  # noqa: E731
-        bat.write_text(f'@echo off\r\ncall "{vcvars}"{vcvars_toolset(vcvars)} >nul\r\n'
+        bat.write_text(f'@echo off\r\ncall "{vcvars}"{vcvars_toolset(vcvars) if vcvars_args is None else vcvars_args} >nul\r\n'
                        f'{q(conf)} || exit /b 1\r\n{q(build)} && exit /b 0\r\n'
                        f'echo   (the build stopped - trying it once more)\r\n{q(build)} || exit /b 1\r\n',
                        encoding="utf-8")
@@ -4242,7 +4255,19 @@ def toolkit_root_defs(nvcc) -> list:
 def engine_defs(archs, toolkit=13) -> list:
     """Extra CMake definitions for the engine: the experimental Pascal/Volta build (#295) for cards below sm_75, and
     for every CUDA 12 engine (the same build as the ready-made CUDA 12 one: it admits the older cards)."""
+    if 52 in {int(x) for x in archs}:
+        return ["-DSTRATA_EXPERIMENTAL_SM52=ON"]
     return ["-DSTRATA_EXPERIMENTAL_SM60=ON"] if min(int(x) for x in archs) < 75 or int(toolkit) == 12 else []
+
+
+def maxwell_msvc_args(vcvars) -> str:
+    """Select an MSVC 19.3x toolset accepted by CUDA 12.0 for the M40 build."""
+    toolsets = Path(vcvars).parents[2] / "Tools" / "MSVC"
+    compatible = sorted((p for p in toolsets.glob("14.3*") if p.is_dir()), reverse=True)
+    if not compatible:
+        fail("CUDA 12.0 needs an MSVC 14.3x toolset for the Maxwell engine",
+             "add the VS 2022 component Microsoft.VisualStudio.Component.VC.14.39.17.9.x86.x64")
+    return f" -vcvars_ver={compatible[0].name[:5]}"
 
 
 def prebuilt_vision(meta: dict, gpu: dict, vision: str) -> str:
@@ -4267,7 +4292,10 @@ def build_engine(gpu, vision, yes, llama, toolkit=None) -> Path:
     if toolkit is None:
         toolkit = 12 if min(int(x) for x in gpu.get("archs", [gpu["arch"]])) < CUDA13_MIN_ARCH else 13
     t12 = int(toolkit) == 12
-    eng = engine_dir(toolkit)
+    maxwell = 52 in {int(x) for x in gpu.get("archs", [gpu["arch"]])}
+    if maxwell and (len(gpu.get("archs", [gpu["arch"]])) != 1 or int(toolkit) != 12):
+        fail("the experimental Maxwell build requires only sm_52 and CUDA 12", "select only the Tesla M40")
+    eng = ROOT / "engine-maxwell" if maxwell else engine_dir(toolkit)
     eng.mkdir(exist_ok=True)
     stamp = eng / "BUILD.json"
     meta = json.loads(stamp.read_text(encoding="utf-8")) if stamp.exists() else {}
@@ -4289,8 +4317,11 @@ def build_engine(gpu, vision, yes, llama, toolkit=None) -> Path:
     if local:
         archs = sorted(built | set(archs))
     nvcc, vcvars = install_build_tools({**gpu, "archs": archs, "toolkit": toolkit}, yes)
+    maxwell_vcvars = maxwell_msvc_args(vcvars) if maxwell and WIN else None
     cuda_archs = ";".join(str(x) for x in archs)
-    bdir, vdir = (ROOT / "build-cuda12", ROOT / "build-vision-cuda12") if t12 else (ROOT / "build", ROOT / "build-vision")
+    bdir, vdir = ((ROOT / "build-maxwell", ROOT / "build-vision-maxwell") if maxwell else
+                  (ROOT / "build-cuda12", ROOT / "build-vision-cuda12") if t12 else
+                  (ROOT / "build", ROOT / "build-vision"))
     if not engine_ok:
         say("  Compiling the engine for " + ", ".join(f"sm_{x}" for x in archs) + " (a card it had no code for; "
             "10-20 minutes, once) ..." if new_arch else
@@ -4300,8 +4331,10 @@ def build_engine(gpu, vision, yes, llama, toolkit=None) -> Path:
                     ["-DSTRATA_ENABLE_CUDA=ON", "-DSTRATA_BUILD_TESTS=OFF", f"-DCMAKE_CUDA_ARCHITECTURES={cuda_archs}",
                      f"-DCMAKE_CUDA_COMPILER={nvcc}", *toolkit_root_defs(nvcc), f"-DSTRATA_GGML_DIR={llama}",
                      *host_compiler_defs(True), *engine_defs(archs, toolkit),
+                     *(["-DCMAKE_CUDA_FLAGS=--use-local-env"] if maxwell and WIN else []),
                      *isa_floor_defs(floor, bdir, meta)],
-                    vcvars, "build-strata-cuda12.bat" if t12 else "build-strata.bat")
+                    vcvars, "build-strata-maxwell.bat" if maxwell else "build-strata-cuda12.bat" if t12 else "build-strata.bat",
+                    vcvars_args=maxwell_vcvars)
         if stale_binary(bdir / EXE):                      # #2054: the stamp below is written only for a binary of this source
             fail(f"the engine build finished without a new engine ({EXE} is version {binary_engine_version(bdir / EXE)}, "
                  f"this source is {source_version()}): the installed engine and its stamp are left as they were",
@@ -4318,8 +4351,11 @@ def build_engine(gpu, vision, yes, llama, toolkit=None) -> Path:
         if vision == "gpu":
             defs += [f"-DCMAKE_CUDA_ARCHITECTURES={cuda_archs}", f"-DCMAKE_CUDA_COMPILER={nvcc}",
                      *toolkit_root_defs(nvcc)]
+            if maxwell and WIN:
+                defs += ["-DCMAKE_CUDA_FLAGS=--use-local-env"]
         cmake_build(ROOT / "tools" / "vision", vdir, "strata-vision", defs, vcvars,
-                    "build-vision-cuda12.bat" if t12 else "build-vision.bat")
+                    "build-vision-maxwell.bat" if maxwell else "build-vision-cuda12.bat" if t12 else "build-vision.bat",
+                    vcvars_args=maxwell_vcvars)
         shutil.copy2(vdir / "bin" / VEXE, eng / VEXE)
     bindir = Path(nvcc).parent                            # the toolkit's own libraries (bin, bin/x64, lib64)
     dirs = [str(d) for d in (bindir, bindir / "x64", bindir.parent / "lib64") if d.is_dir()]
@@ -5688,6 +5724,10 @@ def ensure_engine_for(cards, cfg_path: Path, cfg: dict, yes: bool) -> dict:
     older or newer generation, #128) or a new GPU in the PC otherwise stops the start with 'no kernel image'.  Such a
     card gets the engine compiled for all of them, before the start.  A Pascal / Volta card added to a model on the
     CUDA 13 engine moves the model to the experimental CUDA 12 engine (CUDA 13 has no code for it)."""
+    if Path(str(cfg.get("exe", ""))).parent.name == "engine-maxwell":
+        if any(not maxwell_card(g["arch"]) for g in cards):
+            fail("engine-maxwell contains code only for sm_52", "use the Tesla M40 alone for this model")
+        return cfg
     tk = config_toolkit(cfg)
     if tk == 13 and any(int(g["arch"]) < CUDA13_MIN_ARCH for g in cards):
         return use_cuda12(cards, cfg_path, cfg, yes)
@@ -5713,6 +5753,8 @@ def ensure_engine_for(cards, cfg_path: Path, cfg: dict, yes: bool) -> dict:
 def get_cuda12_engine(url_base, gpu, vision, yes, build=False) -> Path:
     """The experimental CUDA 12 engine for these cards (gpu["archs"]): the ready-made one (Windows) with NVIDIA's
     CUDA 12 libraries, or compiled here with a CUDA 12.x toolkit (Linux, --build, or no ready-made one)."""
+    if 52 in {int(x) for x in gpu.get("archs", [gpu["arch"]])}:
+        return build_engine(gpu, vision, yes, get_llama_cpp(), toolkit=12)
     eng = None if build else get_prebuilt(url_base, gpu, vision, toolkit=12)
     if eng is not None and json.loads((eng / "BUILD.json").read_text(encoding="utf-8")).get("source") != "local":
         pip_cuda_libs(12)
@@ -6144,6 +6186,9 @@ def poly_setup(a, family, gpu, hip, cuda_tk, multi, ram, data, elsewhere, port, 
     config and the start script."""
     fam = FAMILIES[family]
     title = fam["title"]
+    if not hip and maxwell_gpu(gpu):
+        fail(f"{title}'s strata-poly engine has not yet been ported to the Tesla M40",
+             "use a Qwen3.8 model on the original strata engine while Maxwell porting continues (docs/MAXWELL.md)")
     if hip and WIN:
         fail(f"{title} has no AMD engine for Windows: its HIP engine is compiled on Linux",
              "choose another model for this card, or run setup on Linux")
@@ -6497,7 +6542,7 @@ def engine_step(a, gpu, hip, amd, cuda_tk, vision):
         gpu = hip_card(eng, gpu, amd)
         a.gpu = gpu["index"] if gpu["count"] > 1 else a.gpu
     else:
-        eng = None if a.build or hip else get_prebuilt(a.prebuilt, gpu, vision, **({"toolkit": 12} if cuda_tk == 12
+        eng = None if a.build or hip or maxwell_gpu(gpu) else get_prebuilt(a.prebuilt, gpu, vision, **({"toolkit": 12} if cuda_tk == 12
                                                                                     else {}))
     if eng is not None and not hip and json.loads((eng / "BUILD.json").read_text(encoding="utf-8")).get("source") != "local":
         pip_cuda_libs(cuda_tk)
