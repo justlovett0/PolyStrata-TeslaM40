@@ -301,7 +301,10 @@ DeviceInfo device_info(int ordinal) {
 #else
     // #236: the experimental build (-DSTRATA_EXPERIMENTAL_SM60=ON: Pascal sm_60, Volta sm_70) runs on the cards it
     // was built for - refusing them below 7.5 there made the flag useless; the release engine keeps 7.5
-#if defined(STRATA_EXPERIMENTAL_SM60)
+#if defined(STRATA_EXPERIMENTAL_SM52)
+    constexpr int kMinCc = 52;
+    const char* const kNeed = "5.2 or newer (this is the experimental Maxwell build)";
+#elif defined(STRATA_EXPERIMENTAL_SM60)
     constexpr int kMinCc = 60;
     const char* const kNeed = "6.0 or newer (this is the experimental Pascal / Volta build)";
 #else
