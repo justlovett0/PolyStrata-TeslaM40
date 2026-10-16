@@ -1,0 +1,26 @@
+{
+  "exe": "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1\\engine-poly-maxwell\\strata-poly.exe",
+  "args": [
+    "--model",
+    "D:\\models\\GLM-5.3-Flash-GGUF\\UD-IQ3_XXS\\GLM-5.3-Flash-UD-IQ3_XXS-00001-of-00004.gguf",
+    "--max-context",
+    "8192",
+    "--expert-profile",
+    "D:\\polystrata-maxwell\\PolyStrata-data\\packs\\glm-ud-iq3_xxs\\expert-profile.txt",
+    "--vram-reserve-mib",
+    "1664",
+    "--no-draft"
+  ],
+  "cwd": "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1",
+  "tokenizer": "D:\\polystrata-maxwell\\PolyStrata-data\\packs\\glm-ud-iq3_xxs\\tokenizer",
+  "model_name": "glm-5.3-flash-ud-iq3_xxs",
+  "display_name": "GLM 5.3 Flash UD-IQ3_XXS",
+  "log": "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1\\strata-glm-ud-iq3_xxs.log",
+  "lib_dirs": [
+    "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.0\\bin"
+  ],
+  "port": 8081,
+  "cuda": 12,
+  "gpu": 0,
+  "gpus_asked": true
+}

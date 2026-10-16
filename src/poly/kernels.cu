@@ -2265,7 +2265,14 @@ void kda_step(float* qkv, float* g1, const float* a, const float* beta, float* s
     if (head_dim % WARP != 0 || head_dim > 256)
         throw std::invalid_argument("kda_step: a head of 32 to 256 values, in 32s");
     int lanes = WARP;   // threads a column, while a block has them
-    while (head_dim * lanes > 1024) lanes /= 2;
+    // The sm_52 kernel uses 71 registers per thread.  At 1024 threads that exceeds
+    // Maxwell's 65536-register block limit, so use more values per thread there.
+#if defined(STRATA_EXPERIMENTAL_SM52)
+    constexpr int max_threads = 512;
+#else
+    constexpr int max_threads = 1024;
+#endif
+    while (head_dim * lanes > max_threads) lanes /= 2;
     // a few tokens, or a head that is not kda_state_kernel's size: one launch
     if (rows < 32 || snap || head_dim != KDA_TERMS * lanes) {
         kda_step_kernel<<<n_head, head_dim * lanes, 0, cs(stream)>>>(qkv, g1, a, beta, s, g2, o_norm, out, head_dim,

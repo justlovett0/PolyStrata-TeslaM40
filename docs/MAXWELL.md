@@ -1,4 +1,4 @@
-# Tesla M40 (experimental work in progress)
+# Tesla M40 (experimental)
 
 This fork targets the Tesla M40's native CUDA compute capability 5.2. On the test
 machine, `nvidia-smi` reports **Tesla M40 24GB**, **23,040 MiB**, and driver
@@ -26,11 +26,10 @@ build-maxwell\strata-device.exe
 ```
 
 `setup.py` also builds a separate `engine-maxwell/` and selects it on an M40.
-No model is installed on this machine, so this is not yet a validated
-inference recipe. The smallest model offered by this checkout is over 5 GB;
-the machine owner has deferred larger downloads.
+Swift Qwen3.8 IQ3_S and GLM 5.3 Flash UD-IQ3_XXS now run on this machine.
+The latter uses a separate `engine-poly-maxwell/` build of `strata-poly.exe`.
 
-## When model weights are available
+## Other model candidates
 
 For the Strata path, a first candidate is the pinned
 [Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/blob/5bc3e238d916f48a861bac2f8a1990a0e9b7e98d/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf)
@@ -45,8 +44,8 @@ START-HERE.bat --yes --family qwen36-strata --model UD-Q4_K_XL --gguf-dir "D:\pa
 and writes a model launch script. It must select `engine-maxwell/strata.exe`.
 Start with one token and a short deterministic prompt, then repeat requests,
 grow the context, and call the existing OpenAI-compatible API. Record output
-tokens and GPU activity before claiming inference success. The script above has
-not been run because no model is installed.
+tokens and GPU activity before claiming inference success. This particular
+Qwen3.6 model has not been run.
 
 ## Compatibility audit
 
@@ -61,13 +60,12 @@ not been run because no model is installed.
 | `src/kernels/cuda/sampler.cu`, `qsa_select.cu`, `include/strata/kernels/pdl.hpp` | CUDA 12.0 has no `cudaLaunchKernelEx` (cluster/PDL launch), and SM 5.2 cannot run clusters | Compile out those launch branches and keep their existing ordinary-kernel paths | Low; full build passed |
 | `src/kernels/cuda/native_mmvq.cu`, `dequant_bf16.cu` | Pascal tuning tables are measured for SM 6.0/6.1, not SM 5.2 | Default SIMT MMVQ and ordinary dequantization until M40 parity and timing pass | Medium; runtime pending |
 | `src/prefill/gdn_rec_parity.cu`, `src/prefill/kernels.cu` | `cp.async` and high shared-memory variants require newer cards | Existing pre-SM 8.0 kernels; keep parity-only probes out of normal inference | Medium; GDN recurrence parity passed |
-| `src/poly/kernels*.cu`, `src/poly/` | Second engine has its own quantized kernels and dispatch | Port after the original `strata` path generates valid tokens | High; not yet validated |
+| `src/poly/kernels*.cu`, `src/poly/` | Second engine has its own quantized kernels and dispatch | Native SM 5.2 build; cap KDA step at 512 threads to stay within the M40 register limit | High; GLM 5.3 Flash UD-IQ3_XXS inference validated |
 | `setup.py` | SM 5.2 was rejected and setup could choose incompatible CUDA 12 release files | Recognize 5.2, require a local CUDA 12 build in `engine-maxwell/` | Medium; local build and 25 setup tests passed |
 
 The newer prompt attention parity program intentionally refuses SM 5.2; the
 runtime chooses its older decode attention kernel there. The two fused prefill
-tests skip SM 5.2 by design because their kernels require SM 8.0. Model
-loading, end-to-end prefill, sampling, and server behavior remain untested.
+tests skip SM 5.2 by design because their kernels require SM 8.0.
 
 The `kv_hybrid_parity` harness now treats that prompt-attention refusal as the
 expected Maxwell dispatch and verifies its decode fallback against a host
@@ -79,15 +77,16 @@ behavior is unresolved, so a real-model sampling check is still required.
 
 ## Model compatibility on the M40
 
-All entries below are **untested on SM 5.2**. File sizes and architectures are
-from `docs/BACKENDS.md`; they do not establish hardware support.
+Only the specific variants marked validated have completed inference on this M40.
+File sizes and architectures for other variants are from `docs/BACKENDS.md`;
+they do not establish hardware support.
 
 | Family | Engine | M40 state |
 | --- | --- | --- |
-| Qwen3.8 Flash Next, Coder, Swift 1.5, Unsloth variants | `strata` | First validation target; untested |
+| Qwen3.8 Flash Next, Coder, Swift 1.5, Unsloth variants | `strata` | Swift IQ3_S validated; other variants untested |
 | Qwen3.8 NVFP4 | `strata` | Newer GPU quantization path; unavailable pending a separate fallback |
 | Qwen3.6 35B A3B (`qwen36-strata`) | `strata` | Untested |
-| GLM 5.3 Flash | `strata-poly` | Untested; very large host RAM requirement |
+| GLM 5.3 Flash | `strata-poly` | UD-IQ3_XXS validated on this M40; very large host RAM requirement |
 | DeepSeek V4 Flash | `strata-poly` | Untested; very large host RAM requirement |
 | LFM2.5 24B A2B | `strata-poly` | Untested |
 | Qwen3.6 35B A3B, Ornith 1.5, Tiel Coder, MiniCPM-V 4.7 | `strata-poly` | Untested |
@@ -107,7 +106,20 @@ from `docs/BACKENDS.md`; they do not establish hardware support.
 | GPU parity | Attention selection and top-k, eight native expert format pairs plus Q5_1 and BF16 embedding, GDN recurrence, BF16 GEMM, wide/S2 dequantization, MMVQ, DMA, RoPE, KV stream/hybrid/quantization, routing, GEMV, and three sampler paths passed on the M40. Two SM 8.0 fused prefill tests skipped. The sampler host harness needs `/Od` on MSVC 14.39, as described above. |
 | Setup routing | 25 Python unit tests passed; real M40 local engine build wrote `engine-maxwell/BUILD.json` with arch 52 and CUDA 12 |
 | `setup.py --check` | Detects Tesla M40 24GB, SM 5.2, CUDA 12, 192 GB RAM, and AVX-only CPU; labels `strata-poly` families unported |
-| Model load, coherent token generation, server API | Pending a supported model; none installed, and all offered models exceed the owner's 5 GB download limit |
+| GLM model load, coherent token generation, server API | Four-shard UD-IQ3_XXS loaded with native CUDA 12 `sm_52` engine. OpenAI-compatible API returned `Paris` to a deterministic capital question; 64 completion tokens, about 3.3 decode tokens/s. |
+| GLM GPU memory | With `--vram-reserve-mib 1664` and 8192 context, `nvidia-smi` reported 21,563 MiB used and 1,406 MiB free of 23,040 MiB after a request, within the 21,888 MiB (95%) target. |
+
+## GLM 5.3 Flash launcher
+
+`run-glm-ud-iq3_xxs.bat` starts the OpenAI-compatible server on localhost port
+8081 using `strata-glm-ud-iq3_xxs.json`. The JSON points to the four-shard
+`D:\models\GLM-5.3-Flash-GGUF\UD-IQ3_XXS` model, extracted tokenizer and expert
+profile under `PolyStrata-data/packs/glm-ud-iq3_xxs/`, and the CUDA 12
+`engine-poly-maxwell/strata-poly.exe` built for SM 5.2. It starts with an 8192
+token context and disables the model's draft block. The `1664` MiB reserve
+allows for runtime allocations while keeping measured total use below 95% of
+the M40's 23,040 MiB. Other GLM variants and the standard `setup.py --family glm`
+path have not been validated on this card.
 
 ## Change log
 
@@ -116,4 +128,6 @@ from `docs/BACKENDS.md`; they do not establish hardware support.
 - `include/strata/kernels/maxwell_compat.hpp`, `include/strata/kernels/pdl.hpp`, `src/kernels/cuda/sampler.cu`, `src/kernels/cuda/qsa_select.cu`: reuse the old-GPU arithmetic layer and guard cluster launch APIs absent from CUDA 12.0.
 - `setup.py`: recognizes SM 5.2 and directs its local build to separate folders.
 - `tools/maxwell_smoke.cu`: native kernel, transfer, and cuBLAS hardware check.
+- `src/poly/kernels.cu`: bounds the SM 5.2 KDA launch to 512 threads so its 71-register-per-thread kernel fits the M40's 65,536-register block limit.
+- `run-glm-ud-iq3_xxs.bat`, `strata-glm-ud-iq3_xxs.json`: local GLM launcher and server configuration.
 - `docs/MAXWELL.md`: records the audit, test status, and model matrix.
