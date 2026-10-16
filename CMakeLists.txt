@@ -56,6 +56,10 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 option(STRATA_ENABLE_CUDA "Build the CUDA targets (Phase 2+)" OFF)
+option(STRATA_EXPERIMENTAL_SM52 "Experimental native CUDA build for Maxwell sm_52 (Tesla M40)" OFF)
+if(STRATA_EXPERIMENTAL_SM52 AND NOT STRATA_ENABLE_CUDA)
+  message(FATAL_ERROR "STRATA_EXPERIMENTAL_SM52 requires STRATA_ENABLE_CUDA=ON")
+endif()
 # AMD gfx906 (MI50, wave64): the same .cu sources compiled as HIP through the gfx906 compat layer.  The CUDA runtime and
 # cuBLAS names are mapped by the headers in include/strata/platform/hip_compat/, which go first on the include path,
 # and CUDA::cudart / CUDA::cublas become aliases of HIP's targets, so every CUDA target below stays as it is.  This is
@@ -151,11 +155,21 @@ if(STRATA_HIP_GFX906)
   set(_strata_gpu_blas_target CUDA::cublas)
   set(_strata_gpu_include_directories ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 elseif(STRATA_ENABLE_CUDA)
+  if(STRATA_EXPERIMENTAL_SM52)
+    # Check before enable_language(CUDA): nvcc 13 cannot pass CMake's sm_52 compiler probe.
+    find_package(CUDAToolkit REQUIRED)
+    if(CUDAToolkit_VERSION VERSION_LESS 12.0 OR NOT CUDAToolkit_VERSION VERSION_LESS 13.0)
+      message(FATAL_ERROR "STRATA_EXPERIMENTAL_SM52 needs CUDA Toolkit 12.x (found ${CUDAToolkit_VERSION}); CUDA 13 cannot target Maxwell")
+    endif()
+    if(NOT CMAKE_CUDA_ARCHITECTURES STREQUAL "52" AND NOT CMAKE_CUDA_ARCHITECTURES STREQUAL "52-real")
+      message(FATAL_ERROR "STRATA_EXPERIMENTAL_SM52 requires CMAKE_CUDA_ARCHITECTURES=52 (native M40 code), got '${CMAKE_CUDA_ARCHITECTURES}'")
+    endif()
+  endif()
   # #585: CMake links CUDA code with the STATIC runtime by default, and the targets below also link CUDA::cudart (the
   # DLL's import library).  MSVC with a CUDA 12.x toolkit - the experimental Pascal/Volta build - then fails with
   # LNK1169 (every cudart symbol defined twice); GNU ld lets it pass.  That build links the shared runtime alone.  The
   # ready-made engine (CUDA 13, no STRATA_EXPERIMENTAL_SM60) is unchanged; -DCMAKE_CUDA_RUNTIME_LIBRARY overrides.
-  if(MSVC AND STRATA_EXPERIMENTAL_SM60 AND NOT DEFINED CMAKE_CUDA_RUNTIME_LIBRARY)
+  if(MSVC AND (STRATA_EXPERIMENTAL_SM60 OR STRATA_EXPERIMENTAL_SM52) AND NOT DEFINED CMAKE_CUDA_RUNTIME_LIBRARY)
     set(CMAKE_CUDA_RUNTIME_LIBRARY Shared)
   endif()
   enable_language(CUDA)
@@ -163,6 +177,9 @@ elseif(STRATA_ENABLE_CUDA)
   # be brought in explicitly for the host-side tests that call cudaMalloc themselves.
   find_package(CUDAToolkit REQUIRED)
   option(STRATA_EXPERIMENTAL_SM60 "community build for GPUs below compute capability 7.5: Pascal sm_60, Volta sm_70 (#236)" OFF)
+  if(STRATA_EXPERIMENTAL_SM52)
+    add_compile_definitions(STRATA_EXPERIMENTAL_SM52=1 STRATA_EXPERIMENTAL_SM60=1)
+  endif()
   if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
     set(CMAKE_CUDA_ARCHITECTURES 120 CACHE STRING "CUDA architectures" FORCE)
   endif()
@@ -180,13 +197,13 @@ elseif(STRATA_ENABLE_CUDA)
     # bit-exact for the first and merely a shorter pause for the second (sm_70 has both).  Community-tested,
     # not in the ready-made engine; RTX 20/30/40/50 cards must use the release engine instead.  It needs a CUDA
     # 12.x toolkit: CUDA 13 dropped sm_60 and sm_70 (nvcc fails CMake's compiler test with "compute_70").
-    if(_base LESS 75 AND NOT STRATA_EXPERIMENTAL_SM60)
+    if(_base LESS 75 AND NOT STRATA_EXPERIMENTAL_SM60 AND NOT STRATA_EXPERIMENTAL_SM52)
       message(FATAL_ERROR
         "Strata needs an NVIDIA GPU of compute capability 7.5 or newer (RTX 20 / 30 / 40 / 50 series), but "
         "CMAKE_CUDA_ARCHITECTURES is '${CMAKE_CUDA_ARCHITECTURES}'.  (A Pascal sm_60 or Volta sm_70 build is "
         "-DSTRATA_EXPERIMENTAL_SM60=ON; upstream does not support it.)")
     endif()
-    if(_base LESS 60)
+    if(_base LESS 60 AND NOT (STRATA_EXPERIMENTAL_SM52 AND _base EQUAL 52))
       message(FATAL_ERROR "CMAKE_CUDA_ARCHITECTURES '${CMAKE_CUDA_ARCHITECTURES}': even the experimental build "
                           "needs compute capability 6.0 (sm_60) or newer")
     endif()
