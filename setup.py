@@ -1457,7 +1457,7 @@ def cuda_choice(archs, cuda=None, poly=False):
         return 12, "--cuda 12 (as you chose" + ("; RTX 50 (sm_120) engines built with CUDA 12.8 crashed on long "
                                                   "prompts, #220" if crashed else "") + ")"
     if old:
-        return 12, (f"sm_{old[0]} is older than CUDA 13 supports (it dropped Pascal and Volta): this model runs the "
+        return 12, (f"sm_{old[0]} is older than CUDA 13 supports (including Maxwell, Pascal, and Volta): this model runs the "
                     "experimental CUDA 12 engine")
     return 13, None
 
@@ -7002,12 +7002,12 @@ def main() -> int:
     found = gpus()
     amd = amd_gpus()
     amd_ok = [g for g in amd if amd_problem(g) is None]
-    # older NVIDIA GPUs (Pascal / Volta): the experimental CUDA 12 engine, when chosen (docs/OLDER_GPUS.md)
+    # older NVIDIA GPUs (Maxwell / Pascal / Volta): the experimental CUDA 12 engine, when chosen
     OLD_GPUS = OLD_GPUS or old_gpus_opt_in(found, named_gpus(a.gpu, a.gpus), a.cuda,
                                            other=bool(amd_ok) or a.backend == "hip")
     if OLD_GPUS and a.backend != "hip":
-        warn(f"older NVIDIA GPUs (Pascal / Volta) can be used ({OLD_GPUS}): experimental, through a second engine "
-             "built with CUDA 12 (docs/OLDER_GPUS.md)")
+        warn(f"older NVIDIA GPUs (Maxwell / Pascal / Volta) can be used ({OLD_GPUS}): experimental, through a second "
+             "engine built with CUDA 12 (docs/MAXWELL.md, docs/OLDER_GPUS.md)")
     nv_ok = any(gpu_problem(g) is None for g in found)
     hip = a.backend == "hip" or (a.backend is None and not nv_ok and bool(amd_ok))
     if a.backend is None and nv_ok and amd_ok:
@@ -7180,8 +7180,12 @@ def main() -> int:
             else:
                 any_fits = any_fits or not verdict.startswith("does not fit")
             say(f"  {m:8s} needs ~{d['ram_gb']} GB RAM: {verdict}")
+        maxwell = int(gpu.get("arch") or 0) == 52
         for f, fd in FAMILIES.items():                  # the families with sizes of their own
             for m, d in fd.get("models", {}).items():
+                if maxwell and fd.get("engine") == "poly":
+                    say(f"  {fd['title']} {m}: strata-poly has not been ported to SM 5.2")
+                    continue
                 any_fits = any_fits or poly_fits(d, ram, gpu["vram_gb"], hip)
                 say(f"  {fd['title']} {m}: {poly_verdict(d, ram, gpu['vram_gb'], hip, bool(fd.get('windows')))}")
         if not any_fits:
@@ -7190,7 +7194,11 @@ def main() -> int:
             say(f"\nThis PC cannot run PolyStrata yet: no model size fits {ram:.0f} GB of RAM (the smallest needs about "
                 f"{need} GB). --model NAME --yes installs one anyway, slowly.")
             return 1
-        say("\nThis PC can run PolyStrata. Run it again without --check to install.")
+        if maxwell:
+            say("\nThis PC meets the prerequisites for the experimental Maxwell Strata engine. Model inference has "
+                "not yet been validated on SM 5.2; strata-poly is not ported. See docs/MAXWELL.md.")
+        else:
+            say("\nThis PC can run PolyStrata. Run it again without --check to install.")
         return 0
 
     # ---- 2. the questions

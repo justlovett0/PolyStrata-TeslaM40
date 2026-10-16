@@ -80,6 +80,7 @@ from `docs/BACKENDS.md`; they do not establish hardware support.
 | Full engine build | `strata.exe --families` ran from both `build-maxwell/` and `engine-maxwell/`, reporting `qwen4exp qwen35moe`; every inspected CUDA image contains `sm_52` cubins only |
 | GPU parity | Attention selection and top-k, eight native expert format pairs plus Q5_1 and BF16 embedding, GDN recurrence, BF16 GEMM, and wide/S2 dequantization passed on the M40. Two SM 8.0 fused prefill tests skipped. |
 | Setup routing | 25 Python unit tests passed; real M40 local engine build wrote `engine-maxwell/BUILD.json` with arch 52 and CUDA 12 |
+| `setup.py --check` | Detects Tesla M40 24GB, SM 5.2, CUDA 12, 192 GB RAM, and AVX-only CPU; labels `strata-poly` families unported |
 | Model load, coherent token generation, server API | Pending a supported model; none installed, and all offered models exceed the owner's 5 GB download limit |
 
 ## Change log
