@@ -333,8 +333,16 @@ int main() {
             // AMD: the tensor-core prompt path is CUDA-only, so it refuses every pool and the old kernel runs
             std::printf("[5/5] qsa_prompt_attn mode 3: PASS (refused on HIP - the old kernel runs)\n");
 #else
-            std::printf("[5/5] qsa_prompt_attn mode 3: FAIL (refused the hybrid pools)\n");
-            g_fail = 1;
+            int dev = 0, major = 0;
+            ck(cudaGetDevice(&dev), "prompt device");
+            ck(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, dev), "prompt capability");
+            if (major < 7) {
+                // Maxwell/Pascal have no tensor-core prompt kernel. The mode-3 decode path above is the fallback.
+                std::printf("[5/5] qsa_prompt_attn mode 3: PASS (sm_%d uses the checked decode fallback)\n", major);
+            } else {
+                std::printf("[5/5] qsa_prompt_attn mode 3: FAIL (refused the hybrid pools)\n");
+                g_fail = 1;
+            }
 #endif
         } else {
             k::fwht256_inplace_cuda(d_at4, QH, nullptr);

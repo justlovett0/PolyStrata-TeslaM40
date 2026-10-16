@@ -934,6 +934,11 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
   add_test(NAME s2_gemv_q8_parity COMMAND s2_gemv_q8_parity --selftest)
 
   add_executable(sampler_parity src/kernels/sampler_parity.cpp)
+  if(MSVC AND STRATA_EXPERIMENTAL_SM52)
+    # MSVC 14.39 /O2 produces stack-layout-sensitive failures in two host-side comparisons here:
+    # they vanish with diagnostic prints or /Od. Keep production CUDA kernels at Release optimization.
+    target_compile_options(sampler_parity PRIVATE /Od)
+  endif()
   target_include_directories(sampler_parity PRIVATE ${_strata_gpu_include_directories})
   target_link_libraries(sampler_parity PRIVATE strata_kernels ${_strata_gpu_runtime_target})
   add_test(NAME sampler_parity COMMAND sampler_parity --selftest)

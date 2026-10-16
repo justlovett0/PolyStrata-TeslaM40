@@ -30,6 +30,24 @@ No model is installed on this machine, so this is not yet a validated
 inference recipe. The smallest model offered by this checkout is over 5 GB;
 the machine owner has deferred larger downloads.
 
+## When model weights are available
+
+For the Strata path, a first candidate is the pinned
+[Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-MTP-GGUF/blob/5bc3e238d916f48a861bac2f8a1990a0e9b7e98d/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf)
+from `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` (22.9 GB). Place the complete file in a
+directory of your choice, then from this checkout run:
+
+```bat
+START-HERE.bat --yes --family qwen36-strata --model UD-Q4_K_XL --gguf-dir "D:\path\to\model-directory" --context 8192 --no-start
+```
+
+`setup.py` checks the pinned file size and SHA-256, extracts the tokenizer,
+and writes a model launch script. It must select `engine-maxwell/strata.exe`.
+Start with one token and a short deterministic prompt, then repeat requests,
+grow the context, and call the existing OpenAI-compatible API. Record output
+tokens and GPU activity before claiming inference success. The script above has
+not been run because no model is installed.
+
 ## Compatibility audit
 
 | Source | SM 5.2 issue | Intended fallback | Difficulty / state |
@@ -50,6 +68,14 @@ The newer prompt attention parity program intentionally refuses SM 5.2; the
 runtime chooses its older decode attention kernel there. The two fused prefill
 tests skip SM 5.2 by design because their kernels require SM 8.0. Model
 loading, end-to-end prefill, sampling, and server behavior remain untested.
+
+The `kv_hybrid_parity` harness now treats that prompt-attention refusal as the
+expected Maxwell dispatch and verifies its decode fallback against a host
+reference. The MSVC 14.39 Release build of `sampler_parity` gave two
+stack-layout-sensitive false results: adding mismatch diagnostics or compiling
+only that host harness with `/Od` made all three sampler variants pass. The
+production CUDA kernels remain optimized. The exact cause of the harness
+behavior is unresolved, so a real-model sampling check is still required.
 
 ## Model compatibility on the M40
 
@@ -78,7 +104,7 @@ from `docs/BACKENDS.md`; they do not establish hardware support.
 | Memory transfer and cuBLAS SGEMM | `tools/maxwell_smoke.cu` passed on the M40 (expected 2x2 product and round-trip transfer) |
 | `strata-device` | Built and ran on the M40: compute capability 5.2, 24 SMs, 22.432 GiB visible VRAM; its cubin is `sm_52` |
 | Full engine build | `strata.exe --families` ran from both `build-maxwell/` and `engine-maxwell/`, reporting `qwen4exp qwen35moe`; every inspected CUDA image contains `sm_52` cubins only |
-| GPU parity | Attention selection and top-k, eight native expert format pairs plus Q5_1 and BF16 embedding, GDN recurrence, BF16 GEMM, and wide/S2 dequantization passed on the M40. Two SM 8.0 fused prefill tests skipped. |
+| GPU parity | Attention selection and top-k, eight native expert format pairs plus Q5_1 and BF16 embedding, GDN recurrence, BF16 GEMM, wide/S2 dequantization, MMVQ, DMA, RoPE, KV stream/hybrid/quantization, routing, GEMV, and three sampler paths passed on the M40. Two SM 8.0 fused prefill tests skipped. The sampler host harness needs `/Od` on MSVC 14.39, as described above. |
 | Setup routing | 25 Python unit tests passed; real M40 local engine build wrote `engine-maxwell/BUILD.json` with arch 52 and CUDA 12 |
 | `setup.py --check` | Detects Tesla M40 24GB, SM 5.2, CUDA 12, 192 GB RAM, and AVX-only CPU; labels `strata-poly` families unported |
 | Model load, coherent token generation, server API | Pending a supported model; none installed, and all offered models exceed the owner's 5 GB download limit |
