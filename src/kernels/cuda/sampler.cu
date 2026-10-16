@@ -20,6 +20,7 @@
 //   - `sampler_kernel` (`STRATA_OLD_SAMPLER=1`), the kernel of engine 0.1.20, kept as the reference.
 // The two new ones share `sampled_tail_warp` (top_p / min_p / temperature / draw on one warp).
 #include "strata/kernels/sampler.hpp"
+#include "strata/kernels/maxwell_compat.hpp"
 #include "strata/core/coupled_draft.hpp"
 #include "strata/core/spec_prob.hpp"
 #include "strata/core/emulate.hpp"
@@ -1188,7 +1189,7 @@ int2* split_scratch(void* stream, size_t entries) {
 }  // namespace
 
 bool sample_greedy_cluster(const float* logits, int n_tokens, int n_vocab, int* out, void* stream) {
-#if defined(__HIPCC__)
+#if !STRATA_CUDA_LAUNCH_EX
     (void) logits; (void) n_tokens; (void) n_vocab; (void) out; (void) stream;
     return false;
 #else

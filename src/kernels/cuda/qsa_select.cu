@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include "strata/kernels/qsa_select.hpp"
+#include "strata/kernels/maxwell_compat.hpp"
 #include "strata/kernels/gfx_arch.hpp"
 
 #include <cuda_runtime.h>
@@ -1231,7 +1232,7 @@ static bool topk_active_turing_device() {
 
 bool qsa_block_topk_cluster(const float* scores, const int32_t* steps, int64_t nq, int64_t max_blocks, int64_t cap,
                             const QsaShapes& s, int32_t* ids, void* stream) {
-#if defined(__HIPCC__)
+#if !STRATA_CUDA_LAUNCH_EX
     (void) scores; (void) steps; (void) nq; (void) max_blocks; (void) cap; (void) s; (void) ids; (void) stream;
     return false;
 #else

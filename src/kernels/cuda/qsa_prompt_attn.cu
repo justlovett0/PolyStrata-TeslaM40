@@ -66,11 +66,20 @@ __device__ __forceinline__ void mma16816(float* c, const uint32_t* a, const uint
 
 // Two int8 codes (low byte first) as an exact half2: 1024 + (c + 128) built in the mantissa, minus 1152.
 __device__ __forceinline__ uint32_t i8x2_to_h2(uint32_t x) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 530
+    // Maxwell sm_52 has no packed-half subtraction (__hsub2).  Both signed
+    // bytes fit exactly in FP16, so convert through FP32 on this architecture.
+    const float lo = static_cast<float>(static_cast<int8_t>(x & 0xffu));
+    const float hi = static_cast<float>(static_cast<int8_t>((x >> 8) & 0xffu));
+    const __half2 h = __floats2half2_rn(lo, hi);
+    return *reinterpret_cast<const uint32_t*>(&h);
+#else
     uint32_t y = ((x & 0xffu) | ((x & 0xff00u) << 8)) ^ 0x00800080u;
     y |= 0x64006400u;
     __half2 h = *reinterpret_cast<__half2*>(&y);
     h = __hsub2(h, __halves2half2(__float2half(1152.f), __float2half(1152.f)));
     return *reinterpret_cast<uint32_t*>(&h);
+#endif
 }
 
 __device__ __forceinline__ uint32_t pack_h2(float lo_k, float hi_k) {   // element k in the low half

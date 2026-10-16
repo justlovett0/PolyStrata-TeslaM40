@@ -19,6 +19,7 @@
 #pragma once
 
 #include <cuda_runtime.h>
+#include "strata/kernels/maxwell_compat.hpp"
 
 #include <utility>
 
@@ -76,7 +77,7 @@ __device__ __forceinline__ void pdl_trigger() {
 template <typename... KArgs, typename... Args>
 inline void launch_pdl(void (*kernel)(KArgs...), dim3 grid, dim3 block, size_t smem, cudaStream_t stream,
                        Args&&... args) {
-#if !defined(__HIPCC__)
+#if STRATA_CUDA_LAUNCH_EX
     if (pdl_scope() && pdl_launch_ok((const void*) kernel, stream)) {
         cudaLaunchConfig_t cfg = {};
         cfg.gridDim = grid;
