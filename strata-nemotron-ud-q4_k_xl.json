@@ -1,0 +1,30 @@
+{
+    "exe":  "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1\\engine-poly-maxwell\\strata-poly.exe",
+    "args":  [
+                 "--model",
+                 "D:\\models\\Nemotron3.5-Bolt\\UD-Q4_K_XL\\NVIDIA-Nemotron-3.5-Bolt-74B-A9B-UD-Q4_K_XL-00001-of-00003.gguf",
+                 "--max-context",
+                 "32768",
+                 "--prompt-batch",
+                 "1",
+                 "--window",
+                 "1",
+                 "--expert-profile",
+                 "D:\\polystrata-maxwell\\PolyStrata-data\\packs\\nemotron-ud-q4_k_xl\\expert-profile.txt",
+                 "--vram-reserve-mib",
+                 "1152",
+                 "--no-draft"
+             ],
+    "cwd":  "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1",
+    "tokenizer":  "D:\\polystrata-maxwell\\PolyStrata-data\\packs\\nemotron-ud-q4_k_xl\\tokenizer",
+    "model_name":  "nvidia-nemotron-3.5-bolt-74b-a9b-ud-q4_k_xl",
+    "display_name":  "NVIDIA Nemotron 3.5 Bolt 74B-A9B UD-Q4_K_XL",
+    "log":  "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1\\strata-nemotron-ud-q4_k_xl.log",
+    "lib_dirs":  [
+                     "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.0\\bin"
+                 ],
+    "port":  8082,
+    "cuda":  12,
+    "gpu":  0,
+    "gpus_asked":  true
+}

@@ -1,6 +1,6 @@
 <h1 align="center">PolyStrata M40</h1>
 
-<p align="center"><b>Big local MoE models on a 2015 Tesla, because the old card still has work to do.</b></p>
+<p align="center"><b>Big local MoE models on a 2015 Tesla, because this old card still has life in it.</b></p>
 
 <p align="center">
   <img alt="GPU Tesla M40" src="https://img.shields.io/badge/GPU-Tesla_M40_24GB-76B900?logo=nvidia&logoColor=white">
@@ -38,7 +38,7 @@ generated when none is entered.
 
 | Menu | Model | Engine | Known configuration | M40 validation |
 | ---: | --- | --- | --- | --- |
-| 1 | Swift Qwen3.8 Flash Next IQ3_S | `strata.exe` | native pack, IQ3_S experts, speculative lookup | Working on the target machine |
+| 1 | Swift Qwen3.8 Flash Next IQ3_S | `strata.exe` | native pack, IQ3_S experts, speculative lookup | Runs "swiftly" at 20-25 tok/s on average |
 | 2 | GLM 5.3 Flash UD-IQ3_XXS | `strata-poly.exe` | four GGUF shards, 1,664 MiB workspace reserve | Coherent API answers; about 3.3 tok/s in the recorded short run |
 | 3 | NVIDIA Nemotron 3.5 Bolt 74B-A9B UD-Q4_K_XL | `strata-poly.exe` | three shards, batch 1, window 1 | Loaded 50.2 GB; `OK` at about 10.6 tok/s |
 | 4 | Qwen3.6 35B-A3B UD-Q4_K_S | `strata-poly.exe` | embedded MTP layer, batch 2,048, tail skip 6 | 1,800-token cold run at 44.6 tok/s; follow-up request passed |

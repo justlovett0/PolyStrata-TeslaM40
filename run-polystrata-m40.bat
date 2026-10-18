@@ -22,7 +22,7 @@ $DataRoot = 'D:\polystrata-maxwell\PolyStrata-data'
 function Banner {
     Clear-Host
     Write-Host '===============================================================' -ForegroundColor DarkCyan
-    Write-Host '  PolyStrata Maxwell Edition  |  Tesla M40 interactive launch' -ForegroundColor Cyan
+    Write-Host '  PolyStrata Maxwell Edition  |  Tesla M40 smart launcher' -ForegroundColor Cyan
     Write-Host '===============================================================' -ForegroundColor DarkCyan
     Write-Host '  CUDA 12.0 / native SM 5.2 / 23,040 MiB M40 profile'
     Write-Host '  A generated copy is saved as strata-m40-last-run.json.'
@@ -254,7 +254,7 @@ if ($vision -and -not $config.PSObject.Properties['vision']) {
     $config.PSObject.Properties.Remove('vision')
 }
 
-$compressedKv = Read-YesNo 'Use compressed KV cache for more long-context headroom?' ($context -ge 131072)
+$compressedKv = Read-YesNo 'Use compressed Q8/int8 KV cache for more long-context headroom?' ($context -ge 131072)
 if ($compressedKv) {
     Set-EngineArg $argsList '--kv' $(if ($isPoly) {'q8_0'} else {'int8'})
 } else { Remove-EngineArg $argsList '--kv' }
