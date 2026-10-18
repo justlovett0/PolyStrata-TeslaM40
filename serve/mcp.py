@@ -494,9 +494,13 @@ def _clean(name: str) -> str:
 class McpHub:
     """Every configured server, and the merged, namespaced tool list the model sees."""
 
-    def __init__(self, servers: dict[str, dict], settings: dict | None = None):
+    def __init__(self, servers: dict[str, dict], settings: dict | None = None, web_search: bool = False):
         self.settings = {**DEFAULTS, **(settings or {})}
         self.servers = {name: McpServer(name, cfg, self.settings) for name, cfg in servers.items()}
+        if web_search:
+            from serve.web_search import WebSearchServer
+            key = "web-search" if "web-search" not in self.servers else "built-in-web-search"
+            self.servers[key] = WebSearchServer()
         self.threads: list[threading.Thread] = []
         self._routes: dict[str, tuple[McpServer, str]] = {}
 
@@ -523,7 +527,8 @@ class McpHub:
             if s.status not in ("ready", "stopped"):
                 continue
             for t in s.tools:
-                name = f"{_clean(s.name)}__{_clean(t['name'])}"[:64]
+                name = _clean(t["name"]) if getattr(s, "builtin", False) else \
+                    f"{_clean(s.name)}__{_clean(t['name'])}"[:64]
                 n = 2
                 while name in out:                       # two names that differ only in cleaned characters
                     name = f"{name[:60]}_{n}"
@@ -532,12 +537,12 @@ class McpHub:
         self._routes = out
         return out
 
-    def template_tools(self, exclude=()) -> list[dict]:
+    def template_tools(self, exclude=(), builtin: bool | None = None) -> list[dict]:
         """The tools in the chat template's form ({name, description, parameters}); `exclude`: names the request
-        brought itself (those win)."""
+        brought itself (those win). `builtin` selects only built-in or only configured MCP tools when given."""
         out = []
         for name, (s, tool) in self.routes().items():
-            if name in exclude:
+            if name in exclude or builtin is not None and bool(getattr(s, "builtin", False)) != builtin:
                 continue
             t = next(x for x in s.tools if x["name"] == tool)
             schema = t.get("inputSchema") if isinstance(t.get("inputSchema"), dict) else {}
@@ -582,11 +587,14 @@ class McpHub:
         servers = []
         for s in self.servers.values():
             names = {tool: n for n, (srv, tool) in routes.items() if srv is s}
-            servers.append({"name": s.name, "transport": s.kind, "status": s.status, "error": s.error,
+            servers.append({"name": s.name, "transport": s.kind, "builtin": bool(getattr(s, "builtin", False)),
+                            "status": s.status, "error": s.error,
                             "info": s.info,
                             "tools": [{"name": names.get(t["name"], t["name"]), "tool": t["name"],
                                        "description": str(t.get("description") or "")[:300]} for t in s.tools]})
-        return {"servers": servers, "tools": len(routes),
+        builtins = sum(1 for s, _ in routes.values() if getattr(s, "builtin", False))
+        return {"servers": servers, "tools": len(routes), "web_tools": builtins,
+                "external_tools": len(routes) - builtins,
                 "settings": {k: self.settings[k] for k in ("timeout_s", "max_result_chars", "max_rounds")}}
 
     def close(self):
@@ -645,7 +653,7 @@ def settings_from(cfg: dict) -> dict:
     return out
 
 
-def hub_from_config(cfg: dict, mcp_config_path: str | None = None) -> McpHub | None:
+def hub_from_config(cfg: dict, mcp_config_path: str | None = None, web_search: bool = False) -> McpHub | None:
     """The run config's `"mcp_servers"` (or `"mcpServers"`) plus the servers in the --mcp-config file (Claude
     Desktop's format: {"mcpServers": {...}}); a name in both takes the file's entry.  None when there are none."""
     servers = {}
@@ -661,9 +669,9 @@ def hub_from_config(cfg: dict, mcp_config_path: str | None = None) -> McpHub | N
         if block is None:
             raise SystemExit(f"[strata] --mcp-config {mcp_config_path}: expected {{\"mcpServers\": {{...}}}}")
         servers.update(servers_from(block, f"--mcp-config {mcp_config_path}"))
-    if not servers:
+    if not servers and not web_search:
         return None
-    return McpHub(servers, settings_from(cfg))
+    return McpHub(servers, settings_from(cfg), web_search=web_search)
 
 
 if __name__ == "__main__":                               # python -m serve.mcp config.json: list what a config offers

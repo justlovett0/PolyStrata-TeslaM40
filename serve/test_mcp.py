@@ -15,6 +15,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from serve import mcp_fake_server as fake  # noqa: E402
@@ -239,7 +240,7 @@ class ToolLoop(unittest.TestCase):
         self.log.close()
         os.environ["FAKE_MCP_LOG"] = self.log.name
         self.hub = McpHub({"fake": stdio(), "broken": stdio("--crash-at-start")},
-                          {"timeout_s": 10, "max_result_chars": 500, "max_rounds": 2})
+                          {"timeout_s": 10, "max_result_chars": 500, "max_rounds": 2}, web_search=True)
         self.hub.start(wait=True)
         self.httpd = None
 
@@ -293,10 +294,27 @@ class ToolLoop(unittest.TestCase):
         self.assertEqual(len(self.engine.prompts), 2)
         first, second = self.engine.prompt_text(0), self.engine.prompt_text(1)
         self.assertIn('"name": "fake__echo"', first)                 # the MCP tools are in the prompt
+        self.assertNotIn('"name": "web_search"', first)              # the Web Search button is a separate opt-in
         self.assertNotIn("broken__", first)                          # the server that failed is left out
         self.assertIn("<function=fake__echo>\n<parameter=text>\nhello from the tool\n</parameter>", second)
         self.assertIn("<tool_response>\nhello from the tool\n</tool_response>", second)
         self.assertEqual(cs[-1]["usage"]["prompt_tokens"], len(self.engine.prompts[1]))
+
+    @mock.patch("serve.web_search.search_duckduckgo")
+    def test_web_search_button_offers_only_builtin_web_tools(self, search):
+        search.return_value = [{"title": "Example", "url": "https://example.com/", "snippet": "fresh"}]
+        self.start(call_script("web_search", query="current example"), "</think>\n\nFresh answer.")
+        code, text = self.post({"strata_web_search": True})
+        self.assertEqual(code, 200, text)
+        cs = self.chunks(text)
+        events = [c["strata_mcp"] for c in cs if "strata_mcp" in c]
+        self.assertEqual([x["event"] for x in events], ["start", "call", "result"])
+        self.assertEqual((events[1]["server"], events[1]["tool"]), ("web search", "web_search"))
+        prompt = self.engine.prompt_text(0)
+        self.assertIn('"name": "web_search"', prompt)
+        self.assertIn('"name": "open_webpage"', prompt)
+        self.assertNotIn("fake__echo", prompt)
+        search.assert_called_once()
 
     def test_a_call_the_output_ends_inside_is_not_run(self):
         """#211: the model's turn ends inside an MCP call: nothing runs (it used to run with no arguments)."""
@@ -416,7 +434,9 @@ class ToolLoop(unittest.TestCase):
         self.assertIn("fake__echo", [t["name"] for t in servers["fake"]["tools"]])
         self.assertEqual(servers["broken"]["status"], "failed")
         self.assertIn("missing configuration", servers["broken"]["error"])
-        self.assertEqual(st["tools"], len(fake.TOOLS))
+        self.assertEqual(st["tools"], len(fake.TOOLS) + 2)
+        self.assertEqual((st["web_tools"], st["external_tools"]), (2, len(fake.TOOLS)))
+        self.assertTrue(next(s for s in st["servers"] if s["name"] == "web search")["builtin"])
         self.assertEqual(st["settings"]["max_rounds"], 2)
         self.svc.api_key = "k"
         with self.assertRaises(urllib.error.HTTPError):

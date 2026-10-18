@@ -64,6 +64,9 @@
             <svg class="st-icon"><use href="web/sprite.svg#i-download"/></svg></button>
           <button type="button" class="st-btn st-btn--icon" id="sampling-btn" title="Sampling and thinking" aria-label="Sampling and thinking">
             <svg class="st-icon"><use href="web/sprite.svg#i-settings"/></svg></button>
+          <button type="button" class="st-btn web-search-btn" id="web-search-btn" aria-pressed="false"
+                  title="Let the model search DuckDuckGo and read public webpages">
+            <svg class="st-icon st-icon--sm"><use href="web/sprite.svg#i-search"/></svg><span>Web Search</span></button>
           <span class="spacer"></span>
           <span class="composer-hint" id="composer-hint"></span>
           <button type="button" class="st-btn st-btn--secondary" id="stop-btn" hidden>
@@ -166,8 +169,8 @@
       <div class="st-card mcp-card" id="mcp-card" hidden>
         <div class="req-head"><span class="card-title">MCP servers</span><span class="muted small" id="mcp-sum"></span></div>
         <div class="mcp-list" id="mcp-list"></div>
-        <p class="muted small mcp-note">Their tools run on this PC with your rights, when the model decides to call them
-          (in this page's chat only; switch it off in Sampling).</p>
+        <p class="muted small mcp-note">Web Search is controlled beside the prompt. Configured MCP tools run on this PC
+          with your rights and can be switched off in Sampling.</p>
       </div>
     </div>
   </section>

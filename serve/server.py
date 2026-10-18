@@ -8,8 +8,9 @@ non-stream), GET /v1/models, GET /models, GET /props, GET /slots, GET /health, G
 Image generation (optional, when the config has an "images" section): POST /v1/images/generations (OpenAI's shape,
 plus seed and steps) runs stable-diffusion.cpp's sd-cli for Qwen-Image-2.1-Turbo, one job at a time on the GPU the
 text engine uses (serve/images.py).
-Tools from MCP servers (serve/mcp.py, `"mcp_servers"` in the config or --mcp-config) are offered only to requests that
-ask for them with `"strata_mcp": true` - the web app does; other clients see exactly the API they always saw.
+The web app can opt into built-in DuckDuckGo search with `"strata_web_search": true`. Tools from configured MCP
+servers (serve/mcp.py, `"mcp_servers"` in the config or --mcp-config) remain a separate `"strata_mcp": true` opt-in;
+other clients see exactly the API they always saw.
 Images (optional, when the config has a "vision" entry): OpenAI image_url parts and Anthropic image blocks (base64
 data, http(s) URLs or local file paths) go through `strata-vision` (the model's mmproj file) and reach the engine as
 embeddings (`GENI`).  JPEG/PNG/BMP/GIF go straight in; WebP, TIFF, AVIF, ... (agents like omp send WebP) are
@@ -6201,13 +6202,18 @@ def make_handler(svc: Service):
             svc.load()
             max_req = max_new = int(req.get("max_completion_tokens") or req.get("max_tokens") or 0)   # 0/-1: the rest
             bias_api.validate_request(req, svc.engine, len(getattr(svc.tok, "tokens", ())) or None)
-            use_mcp = req.get("strata_mcp") is True and svc.mcp is not None      # the web app's opt-in (serve/mcp.py)
+            want_mcp = req.get("strata_mcp") is True and svc.mcp is not None     # configured MCP servers
+            want_web = req.get("strata_web_search") is True and svc.mcp is not None  # built-in DuckDuckGo tools
+            use_mcp = want_mcp or want_web
             own = {t.get("name") for t in tools or [] if isinstance(t, dict)}   # #592: a second line of defence
             if use_mcp:
                 if not self._own_page("MCP tools can be used"):   # tools run with the user's rights on this PC
                     return
                 svc.mcp.wait(10)                                  # servers still starting (only right after start)
-                extra = svc.mcp.template_tools(exclude=own)       # the request's own tools win a name clash
+                extra = svc.mcp.template_tools(exclude=own, builtin=True) if want_web else []
+                used = own | {t["name"] for t in extra}
+                if want_mcp:
+                    extra += svc.mcp.template_tools(exclude=used, builtin=False)
                 use_mcp = bool(extra)
                 tools = (tools or []) + extra or None
             if force and use_mcp:
@@ -7144,7 +7150,7 @@ def main() -> int:
     if a.engine == "strata" and not (tpath / "vocab.json").exists():
         ap.error(f"the model's tokenizer is missing ({tpath / 'vocab.json'}); run setup again")
     tok = load_tokenizer(tpath) or ByteTokenizer()
-    hub = hub_from_config(cfg, a.mcp_config)            # before the minutes of loading: a bad entry stops here
+    hub = hub_from_config(cfg, a.mcp_config, web_search=True)  # built-in search is always present; bad MCP stops here
     if a.engine == "strata":
         if not cfg:
             ap.error("--engine strata needs --config")

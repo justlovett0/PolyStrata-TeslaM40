@@ -456,12 +456,14 @@ const MCP_STATE = {ready: ["st-badge--generating", "Connected"], starting: ["st-
                    failed: ["st-badge--error", "Failed"], stopped: ["st-badge--queued", "Stopped"], idle: ["", "Waiting"]};
 function renderMcp() {
   const servers = mcpInfo.servers || [];
+  const external = servers.filter((s) => !s.builtin);
   $("mcp-card").hidden = !servers.length;
-  $("mcp-row").hidden = !servers.length;
+  $("mcp-row").hidden = !external.length;
   const ready = servers.filter((s) => s.status === "ready" || s.status === "stopped");
   $("mcp-sum").textContent = servers.length ? `${fmt(mcpInfo.tools)} tools · ${ready.length} of ${servers.length} servers connected` : "";
-  $("mcp-row-sub").textContent = mcpInfo.tools ? `${fmt(mcpInfo.tools)} tools from ${ready.map((s) => s.name).join(", ")}; the model calls them when it decides to`
-                                               : "no server is connected yet (see the Monitor)";
+  const externalReady = external.filter((s) => s.status === "ready" || s.status === "stopped");
+  $("mcp-row-sub").textContent = mcpInfo.external_tools ? `${fmt(mcpInfo.external_tools)} tools from ${externalReady.map((s) => s.name).join(", ")}; the model calls them when it decides to`
+                                                        : "no configured MCP server is connected";
   $("mcp-list").innerHTML = servers.map((s) => {
     const [cls, text] = MCP_STATE[s.status] || ["", s.status];
     const info = s.info && s.info.name ? ` · ${s.info.name}${s.info.version ? ` ${s.info.version}` : ""}` : "";
@@ -596,11 +598,25 @@ function markdown(text) {
 }
 
 // ------------------------------------------------------------------ Chat
-const DEFAULTS = {thinking: "high", temperature: 0.6, top_p: 0.95, top_k: 20, max: "", seed: "", show: true, esp: true, mcp: true};
+const DEFAULTS = {thinking: "high", temperature: 0.6, top_p: 0.95, top_k: 20, max: "", seed: "", show: true, esp: true, mcp: true, web: false};
 let settings = {...DEFAULTS, ...store.get("sampling", {})};
 let messages = store.get("chat", []);
 let attachments = [];                 // {name, url}
 let busy = null;                      // {controller, msg}
+
+function renderWebSearch() {
+  const on = settings.web === true;
+  $("web-search-btn").setAttribute("aria-pressed", String(on));
+  $("web-search-btn").title = on ? "Web Search is on — the model may search DuckDuckGo and read public webpages"
+                                  : "Web Search is off — click to let the model search DuckDuckGo";
+  $("chat-empty-sub").textContent = on ? "Web Search is on. Search queries and selected page URLs can leave this PC."
+                                        : "The model runs on this PC. Nothing leaves it.";
+}
+$("web-search-btn").onclick = () => {
+  settings.web = settings.web !== true;
+  store.set("sampling", settings);
+  renderWebSearch();
+};
 
 function saveChat() {
   store.set("chat", messages.map((m) => ({...m, images: (m.images || []).map((i) => ({name: i.name})),
@@ -834,7 +850,8 @@ async function send() {
   if (settings.seed) body.seed = +settings.seed;
   if (settings.max) body.max_tokens = +settings.max;
   if (projectionLoaded()) body.experimental_speed_projection = !!settings.esp;
-  if (settings.mcp !== false && mcpInfo.tools > 0) body.strata_mcp = true;   // this server may run MCP tools for it
+  if (settings.web === true) body.strata_web_search = true;
+  if (settings.mcp !== false && mcpInfo.external_tools > 0) body.strata_mcp = true;
 
   let firstAt = null, thinkStart = null, usage = null, frame = 0;
   const paint = () => { frame = 0; updateAssistant(el, m, true); scrollDown(); };
@@ -1091,7 +1108,7 @@ $("s-apply").onclick = async () => {
               top_k: +$("s-topk").value, max: $("s-max").value.trim(), seed: $("s-seed").value.trim(),
               show: $("s-show").getAttribute("aria-checked") === "true",
               esp: $("s-esp").getAttribute("aria-checked") === "true",
-              mcp: $("s-mcp").getAttribute("aria-checked") === "true"};
+              mcp: $("s-mcp").getAttribute("aria-checked") === "true", web: settings.web === true};
   store.set("sampling", settings);
   const share = $("s-share").getAttribute("aria-checked") === "true";
   openDrawer(false);
@@ -1114,6 +1131,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("drawe
 
 // ------------------------------------------------------------------ start
 setBusy(false);
+renderWebSearch();
 renderChat();
 const startQuestion = new URLSearchParams(location.search).get("q");   // /?q=... starts a chat (a shortcut)
 if (startQuestion) history.replaceState(null, "", location.pathname + location.hash);

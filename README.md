@@ -30,6 +30,10 @@ Windows Server, driver 528.89, and CUDA 12.0.
 4. Double click **`run-polystrata-m40.bat`**.
 5. Pick a model and answer the prompts. The browser opens when the engine is ready.
 
+The chat composer always includes a **Web Search** button. It is gray and off by default; click it to highlight the
+button and let the current chat search DuckDuckGo and read selected public pages. This is a per-browser preference,
+so it is available with every model without another launcher question.
+
 The launcher writes the final, reviewable configuration to `strata-m40-last-run.json`. It does not overwrite any
 optimized preset. Localhost is the default. LAN mode binds to `0.0.0.0` and requires an API key; a random key is
 generated when none is entered.
@@ -98,6 +102,20 @@ runtime paths for those differences.
 
 ## Changes from upstream PolyStrata
 
+### Built-in DuckDuckGo web search
+
+The web chat has an always-present **Web Search** button modeled after the search control in Unsloth Studio. When it
+is enabled, the model receives two local tools: `web_search` for DuckDuckGo results and `open_webpage` for reading a
+result before answering. PolyStrata executes the calls, adds their results to the conversation, and lets the model
+continue for up to the configured MCP round limit. The button is gray when disabled and uses the fork's green accent
+when enabled.
+
+No API key or BAT setting is required. Model inference and chat history remain local; only a search query and the
+public URLs selected for reading are sent over the network. Page downloads are bounded, reject non-text responses,
+and block loopback, private, link-local and other non-public network addresses. Tool results appear as expandable
+blocks in the answer, including the source URLs the model can cite. Search adds prompt tokens and additional model
+rounds, so it can take longer than an ordinary answer.
+
 ### Native SM 5.2 build lane
 
 - `STRATA_EXPERIMENTAL_SM52=ON` is an opt-in CMake configuration.
@@ -156,6 +174,8 @@ flowchart LR
     CFG --> SERVER[PolyStrata Python server]
     SERVER --> UI[Web chat]
     SERVER --> API[OpenAI + Anthropic APIs]
+    UI -->|Web Search on| DDG[DuckDuckGo + public pages]
+    DDG -->|bounded text results| SERVER
     SERVER --> S{Selected engine}
     S -->|Swift| CORE[engine-maxwell/strata.exe]
     S -->|GLM / Nemotron / Qwen3.6 / custom| POLY[engine-poly-maxwell/strata-poly.exe]

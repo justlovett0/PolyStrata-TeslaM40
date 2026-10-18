@@ -126,14 +126,28 @@ function Slug([string]$Text) {
 }
 
 function Find-Python {
-    $choices = @(
-        (Join-Path $Root '.venv\Scripts\python.exe'),
-        (Join-Path $env:USERPROFILE '.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe')
-    )
-    foreach ($p in $choices) { if (Test-Path -LiteralPath $p -PathType Leaf) { return $p } }
+    # regex includes a CPython native extension. A Python executable can answer
+    # --version successfully and still be unable to load this fork's dependencies.
+    $bundled = Join-Path $env:USERPROFILE '.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe'
+    $venv = Join-Path $Root '.venv\Scripts\python.exe'
     $python = Get-Command python.exe -ErrorAction SilentlyContinue
-    if ($python) { return $python.Source }
-    throw 'Python was not found. Run SETUP.bat or install Python, then try again.'
+    $choices = @($bundled,$venv)
+    if ($python) { $choices += $python.Source }
+    $oldPythonPath = $env:PYTHONPATH
+    $env:PYTHONPATH = Join-Path $Root '.tools\pydeps'
+    $probe = "import sys; sys.path.insert(0, r'$($Root.Replace("'", "''"))tools'); import regex, strata_tokenizer"
+    $chosen = $null
+    try {
+        foreach ($p in ($choices | Select-Object -Unique)) {
+            if (-not $p -or -not (Test-Path -LiteralPath $p -PathType Leaf)) { continue }
+            & $p -c $probe *> $null
+            if ($LASTEXITCODE -eq 0) { $chosen = $p; break }
+        }
+    } finally {
+        $env:PYTHONPATH = $oldPythonPath
+    }
+    if ($chosen) { return $chosen }
+    throw 'No compatible Python was found. This build needs Python 3.12 x64 and its bundled native dependencies. Run SETUP.bat, then try again.'
 }
 
 Banner
@@ -150,6 +164,7 @@ $selection = Read-Menu 'Model' 1 5 4
 $custom = $selection -eq 5
 $Python = Find-Python
 $env:PYTHONPATH = (Join-Path $Root '.tools\pydeps') + ';' + (Join-Path $Root '.venv\Lib\site-packages') + ';' + $env:PYTHONPATH
+$PythonVersion = (& $Python -c "import platform; print(platform.python_version())").Trim()
 
 if (-not $custom) {
     $preset = $presets[$selection-1]
@@ -260,8 +275,8 @@ if ($compressedKv) {
 } else { Remove-EngineArg $argsList '--kv' }
 
 $apiMonitor = Read-YesNo 'Enable the in-memory API request monitor?' $false
-$openBrowser = Read-YesNo 'Open the chat page when the model is ready?' $true
-$lazy = Read-YesNo 'Load the model only when the first request arrives?' $false
+$openBrowser = $true
+$lazy = $false
 
 while ($true) {
     $portRaw = Read-Host "Server port [$portDefault]"
@@ -297,6 +312,7 @@ Write-Host "  Context:  $context"
 Write-Host "  Drafting: $draft"
 Write-Host "  Vision:   $vision"
 Write-Host "  KV:       $(if($compressedKv){'compressed'}else{'default'})"
+Write-Host "  Python:   $PythonVersion ($Python)"
 Write-Host "  URL:      http://$(if($network -eq 2){'<this-PC-IP>'}else{'127.0.0.1'}):$port/"
 Write-Host "  Config:   $LastConfig"
 Write-Host
