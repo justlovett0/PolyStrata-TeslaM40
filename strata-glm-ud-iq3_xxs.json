@@ -4,7 +4,7 @@
     "--model",
     "D:\\models\\GLM-5.3-Flash-GGUF\\UD-IQ3_XXS\\GLM-5.3-Flash-UD-IQ3_XXS-00001-of-00004.gguf",
     "--max-context",
-    "8192",
+    "180192",
     "--expert-profile",
     "D:\\polystrata-maxwell\\PolyStrata-data\\packs\\glm-ud-iq3_xxs\\expert-profile.txt",
     "--vram-reserve-mib",

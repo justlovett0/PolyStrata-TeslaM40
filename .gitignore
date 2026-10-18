@@ -34,6 +34,7 @@ td.log
 /packs/
 /mtp/
 /run-*.bat
+!/run-polystrata-m40.bat
 /run-*.sh
 /strata-*.json
 /strata-*.log
@@ -72,3 +73,4 @@ build-vision-cuda12.bat
 
 /.ccache/
 /.rocm-win/
+*.bak

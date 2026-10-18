@@ -69,8 +69,8 @@ bool mxfp4_block_to_q5_0(const uint8_t* src, uint8_t* dst);
 /// The n experts come token after token, a token's together.  An expert that several of the tokens use is read
 /// once for all of them: reading it is most of the work.  A token's result is the one it has in a call of its own.
 /// `meanwhile`, when given, is run once by one of the threads, beside the first products.  It must not throw.
-void cpu_experts(Workers& workers, const CpuExpert* experts, int n, int rows, int gu_type, int d_type, int n_embd,
-                 int n_ff, const float* x, float limit, bool gelu, float* out,
+void cpu_experts(Workers& workers, const CpuExpert* experts, int n, int rows, int gu_type, int d_type, int n_in,
+                 int n_out, int n_ff, const float* x, float limit, bool gelu, bool relu2, float* out,
                  const std::function<void()>* meanwhile = nullptr);
 
 }  // namespace strata::poly

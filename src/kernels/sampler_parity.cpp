@@ -603,8 +603,9 @@ int main(int argc, char** argv) {
         check(cudaMemcpy(gb.data(), d_b, gb.size() * sizeof(int), cudaMemcpyDeviceToHost), "g2");
         int mismatch = 0, wrong = 0;
         for (int t = 0; t < NT; ++t) {
-            if (ga[(size_t) t] != gb[(size_t) t]) ++mismatch;
-            if (ga[(size_t) t] != wa[(size_t) t]) ++wrong;
+            const int a_token = ga.at((size_t) t), b_token = gb.at((size_t) t), reference = wa.at((size_t) t);
+            if (a_token != b_token) ++mismatch;
+            if (a_token != reference) ++wrong;
         }
         std::printf("  %-34s %s (seed-independent: %d differ; vs reference: %d wrong)\n",
                     "greedy ignores the seed", (!mismatch && !wrong) ? "matches" : "*** WRONG ***", mismatch,
@@ -1379,7 +1380,10 @@ int main(int argc, char** argv) {
                 want[(size_t) t] = sampled_reference({l.begin() + (size_t) t * nv, l.begin() + (size_t) (t + 1) * nv}, {}, p, t);
             DeviceRows rows(l, T, hist, 0);
             const std::vector<int> got = rows.sample(p, nullptr);
-            for (int t = 0; t < T; ++t) wrong += got[(size_t) t] != want[(size_t) t];
+            for (int t = 0; t < T; ++t) {
+                const int gpu_token = got.at((size_t) t), reference = want.at((size_t) t);
+                wrong += gpu_token != reference;
+            }
             draws += T;
         }
         std::printf("  %-34s %s (%d of %d draws differ)\n", "gumbel: kernel vs reference", wrong ? "*** WRONG ***" : "matches",
