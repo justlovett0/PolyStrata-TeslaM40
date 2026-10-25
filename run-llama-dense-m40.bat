@@ -4,6 +4,7 @@ title llama.cpp Dense M40 Launcher
 set "DENSE_SELF=%~f0"
 set "DENSE_MODEL_INPUT=%~1"
 if not defined LLAMA_CPP_DIR set "LLAMA_CPP_DIR=%~dp0third_party\llama.cpp"
+if not defined LLAMA_CUDA_BIN set "LLAMA_CUDA_BIN=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.0\bin"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:DENSE_SELF; $s=Get-Content -LiteralPath $p; $m=[Array]::IndexOf($s,'#__LLAMA_DENSE_M40_POWERSHELL__'); if($m -lt 0){throw 'Embedded launcher code is missing'}; & ([scriptblock]::Create(($s[($m+1)..($s.Length-1)] -join [Environment]::NewLine))) -Root '%~dp0'"
 set "DENSE_EXIT=%ERRORLEVEL%"
 if not "%DENSE_EXIT%"=="0" (
@@ -471,6 +472,42 @@ Write-Host
 if ($env:LLAMA_DENSE_M40_DRY_RUN -eq '1') {
     Write-Host 'Dry run requested; llama-server was not started.' -ForegroundColor Yellow
     exit 0
+}
+
+# llama-server is dynamically linked to CUDA and the MSVC runtime.  On this
+# machine CUDA is installed but its bin directory is not on the normal PATH;
+# the custom VS install also has its runtime DLLs outside the usual locations.
+# Add those directories to the child process environment so Windows can load
+# the executable before llama.cpp gets a chance to print its own diagnostics.
+$runtimeDirs = New-Object System.Collections.Generic.List[string]
+function Add-RuntimeDir([string]$Path) {
+    if (-not $Path) { return }
+    try { $full = [IO.Path]::GetFullPath($Path) } catch { return }
+    if ((Test-Path -LiteralPath $full -PathType Container) -and -not $runtimeDirs.Contains($full)) {
+        [void]$runtimeDirs.Add($full)
+    }
+}
+
+Add-RuntimeDir $env:LLAMA_CUDA_BIN
+Add-RuntimeDir (Join-Path $serverDir 'bin')
+if ($env:LLAMA_MSVC_BIN) {
+    Add-RuntimeDir $env:LLAMA_MSVC_BIN
+} else {
+    $msvcRoots = @(
+        'C:\Program1\VC\Redist\MSVC',
+        'C:\Program Files\Microsoft Visual Studio',
+        'C:\Program Files (x86)\Microsoft Visual Studio'
+    )
+    foreach ($msvcRoot in $msvcRoots) {
+        if (-not (Test-Path -LiteralPath $msvcRoot -PathType Container)) { continue }
+        Get-ChildItem -LiteralPath $msvcRoot -Recurse -Filter 'VCRUNTIME140_1.dll' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\x64\\' -or $_.FullName -match '\\Hostx64\\' } |
+            ForEach-Object { Add-RuntimeDir $_.DirectoryName }
+    }
+}
+if ($runtimeDirs.Count -gt 0) {
+    $env:Path = (($runtimeDirs -join ';') + ';' + $env:Path)
+    Write-Host "Runtime DLL paths: $($runtimeDirs -join ';')" -ForegroundColor DarkGray
 }
 
 $browserJob = $null
