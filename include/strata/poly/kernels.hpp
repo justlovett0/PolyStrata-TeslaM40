@@ -205,7 +205,7 @@ struct Kvq8 {
 void attend(const float* q, const uint16_t* kcache, const uint16_t* vcache, int64_t pos, int rows, float* score,
             int chunk, float* out, int dim, int n_head, int kv_heads, float scale, void* stream, int window = 0,
             int ring = 0, bool whole = false, const long long* at = nullptr, int room = 0, size_t score_floats = 0,
-            Kvq8 kq8 = {}, Kvq8 vq8 = {});
+            Kvq8 kq8 = {}, Kvq8 vq8 = {}, const float* sinks = nullptr);
 /// The floats of score that attend()'s blocks of rows take for calls of up to chunk tokens attending up to max_rows
 /// rows (score_floats): with that much a model's every call takes them.
 size_t attend_split_floats(int chunk, int n_head, int max_rows, int dim);
@@ -227,7 +227,8 @@ size_t attend_split_floats(int chunk, int n_head, int max_rows, int dim);
 void attend_batch(void* blas, const float* q, const uint16_t* kcache, const uint16_t* vcache, int64_t pos, int rows,
                   float* score, size_t score_floats, float* work, float* out, int dim, int n_head, int kv_heads,
                   float scale, void* stream, int window = 0, int ring = 0, bool whole = false, Kvq8 kq8 = {},
-                  Kvq8 vq8 = {}, uint16_t* kwork = nullptr, uint16_t* vwork = nullptr, size_t work_halves = 0);
+                  Kvq8 vq8 = {}, uint16_t* kwork = nullptr, uint16_t* vwork = nullptr, size_t work_halves = 0,
+                  const float* sinks = nullptr);
 /// x = cap * tanh(x / cap).
 void softcap(float* x, size_t n, float cap, void* stream);
 /// The first of the largest of n logits and the softmax's probability of it, summed without the logits more than

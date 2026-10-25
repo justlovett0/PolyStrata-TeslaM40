@@ -38,7 +38,7 @@ The launcher writes the final, reviewable configuration to `strata-m40-last-run.
 optimized preset. Localhost is the default. LAN mode binds to `0.0.0.0` and requires an API key; a random key is
 generated when none is entered.
 
-## The four M40 presets
+## The five M40 presets
 
 | Menu | Model | Engine | Known configuration | M40 validation |
 | ---: | --- | --- | --- | --- |
@@ -46,6 +46,7 @@ generated when none is entered.
 | 2 | GLM 5.3 Flash UD-IQ3_XXS | `strata-poly.exe` | four GGUF shards, 1,664 MiB workspace reserve | Coherent API answers; about 3.3 tok/s in the recorded short run |
 | 3 | NVIDIA Nemotron 3.5 Bolt 74B-A9B UD-Q4_K_XL | `strata-poly.exe` | three shards, batch 1, window 1 | Loaded 50.2 GB; `OK` at about 10.6 tok/s |
 | 4 | Qwen3.6 35B-A3B UD-Q4_K_S | `strata-poly.exe` | embedded MTP layer, batch 2,048, tail skip 6 | 1,800-token cold run at 44.6 tok/s; follow-up request passed |
+| 5 | Flint Preview UD-Q3_K_XL | `strata-poly.exe` | native SM52 Flint path, FP16 hybrid KV, all experts resident | Coherent 128-token answer at 39.5 tok/s, 180 W |
 
 The last menu item is **Try an unsupported model**. It selects a GGUF, extracts its embedded tokenizer, builds a
 temporary `strata-poly` configuration, and attempts to start it. That mode is a compatibility probe. It cannot make
@@ -165,6 +166,13 @@ This fork adds the `nemotron_h_moe` path used by NVIDIA Nemotron 3.5 Bolt:
 
 The Mamba hardware parity test differed from the CPU reference by at most `5.96e-07`; the ReLU² activation test
 matched all 14 values.
+
+### Flint backend
+
+The `flint` path implements the model's two dense leading blocks followed by 47 MoE blocks, sigmoid normalized
+top-6 routing over 256 experts, an always-active shared expert, and the GGUF's per-layer full/sliding-attention
+and RoPE patterns. Learned denominator sinks are included in both decode and prompt softmax paths. Sliding layers
+keep a 513-token ring while only the 14 full-attention layers grow with context.
 
 ## How it fits together
 

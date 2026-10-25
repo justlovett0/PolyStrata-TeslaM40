@@ -155,13 +155,14 @@ $presets = @(
     [pscustomobject]@{Key='swift'; Name='Swift Qwen3.8 Flash Next IQ3_S'; Config='strata-swift-iq3_s.json'; Port=8080; Rec=131072; Near=196608; Draft=$true},
     [pscustomobject]@{Key='glm'; Name='GLM 5.3 Flash UD-IQ3_XXS'; Config='strata-glm-ud-iq3_xxs.json'; Port=8081; Rec=32768; Near=98304; Draft=$false},
     [pscustomobject]@{Key='nemotron'; Name='NVIDIA Nemotron 3.5 Bolt 74B-A9B UD-Q4_K_XL'; Config='strata-nemotron-ud-q4_k_xl.json'; Port=8082; Rec=32768; Near=65536; Draft=$false},
-    [pscustomobject]@{Key='qwen36'; Name='Qwen3.6 35B-A3B UD-Q4_K_S'; Config='strata-qwen36-ud-q4_k_s.json'; Port=8083; Rec=131072; Near=196608; Draft=$true}
+    [pscustomobject]@{Key='qwen36'; Name='Qwen3.6 35B-A3B UD-Q4_K_S'; Config='strata-qwen36-ud-q4_k_s.json'; Port=8083; Rec=131072; Near=196608; Draft=$true},
+    [pscustomobject]@{Key='flint'; Name='Flint Preview UD-Q3_K_XL'; Config='strata-flint-ud-q3_k_xl.json'; Port=8084; Rec=65536; Near=131072; Draft=$false}
 )
 Write-Host 'Optimized M40 presets:' -ForegroundColor Cyan
 for ($i=0; $i -lt $presets.Count; $i++) { Write-Host ("  {0}) {1}" -f ($i+1), $presets[$i].Name) }
-Write-Host '  5) Try an unsupported GGUF model (experimental strata-poly path)' -ForegroundColor Yellow
-$selection = Read-Menu 'Model' 1 5 4
-$custom = $selection -eq 5
+Write-Host '  6) Try an unsupported GGUF model (experimental strata-poly path)' -ForegroundColor Yellow
+$selection = Read-Menu 'Model' 1 6 4
+$custom = $selection -eq 6
 $Python = Find-Python
 $env:PYTHONPATH = (Join-Path $Root '.tools\pydeps') + ';' + (Join-Path $Root '.venv\Lib\site-packages') + ';' + $env:PYTHONPATH
 $PythonVersion = (& $Python -c "import platform; print(platform.python_version())").Trim()
@@ -215,14 +216,14 @@ if (-not $custom) {
         display_name = $displayName
         log = Join-Path $Root 'strata-m40-custom.log'
         lib_dirs = @('C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.0\bin')
-        port = 8084
+        port = 8085
         cuda = 12
         gpu = 0
         gpus_asked = $true
     }
     $argsList = New-Object 'System.Collections.Generic.List[string]'
     foreach ($a in $config.args) { [void]$argsList.Add([string]$a) }
-    $portDefault = 8084
+    $portDefault = 8085
     $bytes = Get-GgufBytes $modelPath
     if ($bytes -le 25GB) { $recommended=65536; $nearLimit=131072 }
     elseif ($bytes -le 55GB) { $recommended=32768; $nearLimit=98304 }
@@ -269,7 +270,13 @@ if ($vision -and -not $config.PSObject.Properties['vision']) {
     $config.PSObject.Properties.Remove('vision')
 }
 
-$compressedKv = Read-YesNo 'Use compressed Q8/int8 KV cache for more long-context headroom?' ($context -ge 131072)
+$flintFp16Kv = -not $custom -and $preset.Key -eq 'flint'
+if ($flintFp16Kv) {
+    Write-Host 'Flint currently uses its optimized FP16 hybrid KV cache; Q8 KV is not enabled for this backend.' -ForegroundColor Cyan
+    $compressedKv = $false
+} else {
+    $compressedKv = Read-YesNo 'Use compressed Q8/int8 KV cache for more long-context headroom?' ($context -ge 131072)
+}
 if ($compressedKv) {
     Set-EngineArg $argsList '--kv' $(if ($isPoly) {'q8_0'} else {'int8'})
 } else { Remove-EngineArg $argsList '--kv' }

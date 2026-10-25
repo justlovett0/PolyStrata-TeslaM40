@@ -91,6 +91,7 @@ they do not establish hardware support.
 | LFM2.5 24B A2B | `strata-poly` | Untested |
 | Qwen3.6 35B A3B, Ornith 1.5, Tiel Coder, MiniCPM-V 4.7 | `strata-poly` | Untested |
 | Gemma 4 26B A4B | `strata-poly` | Untested |
+| Flint Preview 40B A2.5B | `strata-poly` | UD-Q3_K_XL validated at 39.5 tok/s decode, FP16 KV, 180 W |
 
 ## Verification record
 

@@ -1292,7 +1292,7 @@ attn_score_reg_kernel(const float* __restrict__ q, const half* __restrict__ kcac
 // a block of the group's queries side by side (per: the group's heads).
 __global__ void attn_softmax_kernel(float* score, int n_keys, long long pos, int first, int tokens, int window,
                                     long long last, const long long* __restrict__ at, float* __restrict__ wt,
-                                    int per) {
+                                    int per, const float* __restrict__ sinks) {
     __shared__ float part[8];
     const long long p = (at ? *at : pos) + first;
     long long lo, lo0;
@@ -1300,10 +1300,11 @@ __global__ void attn_softmax_kernel(float* score, int n_keys, long long pos, int
     const int n = attn_rows(p + blockIdx.y, window, last, &lo), own = int(lo - lo0);
     float* all = score + (size_t(blockIdx.y) * gridDim.x + blockIdx.x) * n_keys;
     float* row = all + own;   // the token's rows of the span
-    float mx = -INFINITY;
+    const int h = blockIdx.x;
+    float mx = sinks ? sinks[h] : -INFINITY;
     for (int j = threadIdx.x; j < n; j += blockDim.x) mx = fmaxf(mx, row[j]);
     mx = block_max(mx, part);
-    float sum = 0.0f;
+    float sum = sinks && threadIdx.x == 0 ? expf(sinks[h] - mx) : 0.0f;
     for (int j = threadIdx.x; j < n; j += blockDim.x) {
         row[j] = expf(row[j] - mx);
         sum += row[j];
@@ -1315,7 +1316,7 @@ __global__ void attn_softmax_kernel(float* score, int n_keys, long long pos, int
         for (int j = own + n + threadIdx.x; j < span; j += blockDim.x) all[j] = 0.0f;
         return;
     }
-    const int h = blockIdx.x, query = blockIdx.y * per + h % per;   // the query among its group's
+    const int query = blockIdx.y * per + h % per;   // the query among its group's
     const int blocks = (tokens * per + VALUE_QUERIES - 1) / VALUE_QUERIES;
     float* o = wt + (size_t(h / per) * blocks + query / VALUE_QUERIES) * n_keys * VALUE_QUERIES + query % VALUE_QUERIES;
     for (int j = threadIdx.x; j < own; j += blockDim.x) o[size_t(j) * VALUE_QUERIES] = 0.0f;
@@ -1674,7 +1675,8 @@ __global__ void attn_ungroup_kernel(const float* __restrict__ src, float* __rest
 // weights of the blocks before are worth against it.  With `fresh` there was no block before.
 __global__ void attn_softmax_block_kernel(const float* __restrict__ score, half* __restrict__ weight, int n_keys,
                                           long long row0, long long pos, int first, int window, int tokens, int per,
-                                          long long last, float* top, float* sum, float* shrink, bool fresh) {
+                                          long long last, float* top, float* sum, float* shrink, bool fresh,
+                                          const float* __restrict__ sinks) {
     __shared__ float part[8];
     const int tok = first + (blockIdx.x % (tokens * per)) / per;
     long long lo;
@@ -1686,7 +1688,9 @@ __global__ void attn_softmax_block_kernel(const float* __restrict__ score, half*
     float mx = -INFINITY;
     for (int j = j0 + threadIdx.x; j < j1; j += blockDim.x) mx = fmaxf(mx, row[j]);
     mx = block_max(mx, part);
-    const float before = fresh ? -INFINITY : top[blockIdx.x], now = fmaxf(before, mx);
+    const int local = blockIdx.x % (tokens * per);
+    const int head = (blockIdx.x / (tokens * per)) * per + local % per;
+    const float before = fresh ? (sinks ? sinks[head] : -INFINITY) : top[blockIdx.x], now = fmaxf(before, mx);
     float s = 0.0f;
     for (int j = threadIdx.x; j < n_keys; j += blockDim.x) {
         w[j] = __float2half(j >= j0 && j < j1 ? expf(row[j] - now) : 0.0f);
@@ -1696,7 +1700,7 @@ __global__ void attn_softmax_block_kernel(const float* __restrict__ score, half*
     if (threadIdx.x != 0) return;
     const float f = mx == -INFINITY ? 1.0f : expf(before - now);   // none of the block's rows: nothing changes
     top[blockIdx.x] = now;
-    sum[blockIdx.x] = (fresh ? 0.0f : sum[blockIdx.x] * f) + s;
+    sum[blockIdx.x] = (fresh ? (sinks ? expf(before - now) : 0.0f) : sum[blockIdx.x] * f) + s;
     shrink[blockIdx.x] = f;
 }
 
@@ -2549,7 +2553,8 @@ void head_norm_rope(const float* x, int x_stride, const float* w, float* y, int 
 
 void attend(const float* q, const uint16_t* kcache, const uint16_t* vcache, int64_t pos, int rows, float* score,
             int chunk, float* out, int dim, int n_head, int kv_heads, float scale, void* stream, int window,
-            int ring, bool whole, const long long* at, int room, size_t score_floats, Kvq8 kq8, Kvq8 vq8) {
+            int ring, bool whole, const long long* at, int room, size_t score_floats, Kvq8 kq8, Kvq8 vq8,
+            const float* sinks) {
     if (at && (whole || room < 1)) throw std::invalid_argument("attend: a position on the card needs its room");
     if (dim % SCORE_VALUES || uintptr_t(q) % (SCORE_VALUES * sizeof(float)) || uintptr_t(kcache) % (SCORE_VALUES * 2))
         throw std::invalid_argument("attend: queries and keys are read four values at a time");
@@ -2558,7 +2563,7 @@ void attend(const float* q, const uint16_t* kcache, const uint16_t* vcache, int6
     const bool kq = kq8.codes != nullptr, vq = vq8.codes != nullptr;
     // attn_split_kernel, where score has room for every block's sums at the longest the call can attend
     const int most = grid(size_t(at ? room : pos + rows), SPLIT_KEYS);
-    if (dim == 64 && per == 4 && window == 0 && ring == 0 && !whole && !kq && !vq &&
+    if (dim == 64 && per == 4 && window == 0 && ring == 0 && !whole && !kq && !vq && !sinks &&
         size_t(chunk) * n_head * most * (dim + 2) <= score_floats) {
         for (int first = 0; first < rows; first += chunk) {
             const int c = std::min(chunk, rows - first);
@@ -2612,7 +2617,7 @@ void attend(const float* q, const uint16_t* kcache, const uint16_t* vcache, int6
         float* wt = per >= 4 && size_t(kv_heads) * blocks * VALUE_QUERIES <= size_t(chunk - c) * n_head
                         ? score + size_t(c) * n_head * keys : nullptr;
         attn_softmax_kernel<<<dim3(n_head, c), 256, 0, cs(stream)>>>(score, keys, (long long) pos, first, c, window,
-                                                                    last, at, wt, per);
+                                                                    last, at, wt, per, sinks);
         // Two blocks of queries a launch block read the values half as often, where the launch still has
         // blocks for most of the card's 36 multiprocessors: for Qwen3.6's two tokens they are half as many and
         // slower, for three or four tokens and for Gemma 4's full layers faster.
@@ -2669,11 +2674,11 @@ size_t attend_split_floats(int chunk, int n_head, int max_rows, int dim) {
 void attend_batch(void* blas, const float* q, const uint16_t* kcache, const uint16_t* vcache, int64_t pos, int rows,
                   float* score, size_t score_floats, float* work, float* out, int dim, int n_head, int kv_heads,
                   float scale, void* stream, int window, int ring, bool whole, Kvq8 kq8, Kvq8 vq8, uint16_t* kwork,
-                  uint16_t* vwork, size_t work_halves) {
+                  uint16_t* vwork, size_t work_halves, const float* sinks) {
     const int per = n_head / kv_heads, width = kv_heads * dim;
     // The fp16-only dim==64 fast path reads the fp16 caches, which are null under q8 (a q8 cache is load-restricted
     // to qwen35moe's head_dim 128, so it never reaches here); guard explicitly so it is provably not taken for q8.
-    if (dim == 64 && per == 4 && window == 0 && ring == 0 && !whole && kq8.codes == nullptr && vq8.codes == nullptr &&
+    if (dim == 64 && per == 4 && window == 0 && ring == 0 && !whole && kq8.codes == nullptr && vq8.codes == nullptr && !sinks &&
         tensor_cores()) {
         attn_flash64_kernel<<<dim3(grid(rows, FLASH_TOKENS), kv_heads), 4 * WARP, 0, cs(stream)>>>(
             q, (const half*) kcache, (const half*) vcache, out, rows, n_head, kv_heads, (long long) pos,
@@ -2741,7 +2746,7 @@ void attend_batch(void* blas, const float* q, const uint16_t* kcache, const uint
                     "attention scores");
             attn_softmax_block_kernel<<<c * n_head, 128, 0, cs(stream)>>>(score, weight, m, lo0 + k0, (long long) pos,
                                                                          first, window, c, per, last, top, sum,
-                                                                         shrink, k0 == 0);
+                                                                         shrink, k0 == 0, sinks);
             if (k0 > 0)
                 attn_scale_kernel<<<dim3(grid(dim, 256), c * n_head), 256, 0, cs(stream)>>>(og, shrink, dim, false);
             blas_ck(cublasGemmStridedBatchedEx(h, CUBLAS_OP_N, CUBLAS_OP_N, dim, (int) cols, m, &one,

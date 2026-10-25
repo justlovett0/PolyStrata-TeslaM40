@@ -3,6 +3,7 @@
 #include "engine.hpp"
 
 #include "deepseek4.hpp"
+#include "flint.hpp"
 #include "gemma4.hpp"
 #include "glm5next.hpp"
 #include "lfm2moe.hpp"
@@ -858,6 +859,7 @@ std::unique_ptr<Engine> Engine::open(const Options& o) {
         if (name == "qwen35moe") return std::make_unique<Qwen35>();
         if (name == "gemma4") return std::make_unique<Gemma4>();
         if (name == "deepseek4") return std::make_unique<DeepSeek4>();
+        if (name == "flint") return std::make_unique<Flint>();
         if (name == "lfm2moe") return std::make_unique<Lfm2Moe>();
         if (name == "nemotron_h_moe") return std::make_unique<NemotronH>();
         throw std::runtime_error(o.model + " is a '" + name + "' model, which this engine does not run");

@@ -1,0 +1,37 @@
+{
+  "exe": "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1\\engine-poly-maxwell\\strata-poly.exe",
+  "args": [
+    "--model",
+    "D:\\models\\flint40\\flint-preview-UD-Q3_K_XL.gguf",
+    "--max-context",
+    "65536",
+    "--prompt-batch",
+    "64",
+    "--stage-mib",
+    "512",
+    "--window",
+    "1",
+    "--lookup",
+    "0",
+    "--expert-swaps",
+    "0",
+    "--expert-profile",
+    "D:\\polystrata-maxwell\\PolyStrata-data\\packs\\m40-custom-flint-preview-ud-q3-k-xl\\expert-profile.txt",
+    "--vram-reserve-mib",
+    "512",
+    "--no-draft"
+  ],
+  "cwd": "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1",
+  "tokenizer": "D:\\polystrata-maxwell\\PolyStrata-data\\packs\\m40-custom-flint-preview-ud-q3-k-xl\\tokenizer",
+  "model_name": "flint-preview-ud-q3-k-xl",
+  "display_name": "Flint Preview UD-Q3_K_XL",
+  "log": "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1\\strata-flint-ud-q3_k_xl.log",
+  "lib_dirs": [
+    "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.0\\bin",
+    "C:\\Program1\\VC\\Redist\\MSVC\\14.39.33519\\x64\\Microsoft.VC143.CRT"
+  ],
+  "port": 8084,
+  "cuda": 12,
+  "gpu": 0,
+  "gpus_asked": true
+}

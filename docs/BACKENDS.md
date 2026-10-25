@@ -21,9 +21,10 @@ a second machine, a Windows laptop whose card has 8 GB.
 | MiniCPM-V 4.7 35B-A3B | `qwen35moe` | `strata-poly` | OpenBMB Q4_K_M, mix_q3gud_im and Q6_K, 15.5 to 28.5 GB | none: it answers one token at a time |
 | DeepSeek V4 Flash | `deepseek4` | `strata-poly` | Unsloth UD-IQ2_XXS, three files, 90.9 GB | repeats only: its draft model is not run yet |
 | LFM2.5-24B-A2B | `lfm2moe` | `strata-poly` | Unsloth UD-Q4_K_XL, UD-Q3_K_XL, UD-Q6_K_XL and Q8_0, Liquid AI QAD-Q4_0, 10.9 to 25.5 GB | repeats only: there is no draft model |
+| Flint Preview 40B-A2.5B | `flint` | `strata-poly` | UD-Q3_K_XL, 17.2 GiB | repeats only: there is no draft model |
 
 `strata` is the first engine and runs Qwen3.8 only; nothing in it changed. `strata-poly` is the engine that reads a
-GGUF in place, and it now has four architectures. It was called `strata-glm`, after its first model; an install
+GGUF in place. It was called `strata-glm`, after its first model; an install
 from then keeps its engine and moves to the new name the next time setup updates it.
 
 ## Install
@@ -191,6 +192,7 @@ key, so a model the engine cannot run is listed as unavailable with the reason i
 | `gemma4` | `Gemma4` |
 | `deepseek4` | `DeepSeek4` |
 | `lfm2moe` | `Lfm2Moe` |
+| `flint` | `Flint` |
 
 Within an architecture the shape comes from the file: layer counts, widths, head counts, expert counts, which
 layers have which attention, whether there is a draft block. Qwen3.6 and Ornith 1.5 are one class because their
