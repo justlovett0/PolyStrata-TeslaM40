@@ -3,6 +3,7 @@ setlocal EnableExtensions
 title llama.cpp Dense M40 Launcher
 set "DENSE_SELF=%~f0"
 set "DENSE_MODEL_INPUT=%~1"
+if not defined LLAMA_CPP_DIR set "LLAMA_CPP_DIR=%~dp0third_party\llama.cpp"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$p=$env:DENSE_SELF; $s=Get-Content -LiteralPath $p; $m=[Array]::IndexOf($s,'#__LLAMA_DENSE_M40_POWERSHELL__'); if($m -lt 0){throw 'Embedded launcher code is missing'}; & ([scriptblock]::Create(($s[($m+1)..($s.Length-1)] -join [Environment]::NewLine))) -Root '%~dp0'"
 set "DENSE_EXIT=%ERRORLEVEL%"
 if not "%DENSE_EXIT%"=="0" (
@@ -27,6 +28,7 @@ function Banner {
     Write-Host '===============================================================' -ForegroundColor DarkCyan
     Write-Host '  CUDA 12.0 / native SM 5.2 / 24 GB class Maxwell GPU'
     Write-Host '  Uses a separately built llama-server.exe, not strata-poly.'
+    Write-Host '  The bundled SM52 build is headless API mode; its optional Web UI is not included.' -ForegroundColor DarkGray
     Write-Host '  A reviewable copy is saved as llama-dense-m40-last-run.json.'
     Write-Host
 }
@@ -272,22 +274,39 @@ function Get-ContextPlan([object]$Info) {
 function Find-LlamaServer([string]$Base) {
     $candidates = @()
     if ($env:LLAMA_SERVER_EXE) { $candidates += $env:LLAMA_SERVER_EXE }
-    $candidates += @(
-        (Join-Path $Base 'llama-build\bin\llama-server.exe'),
-        (Join-Path $Base 'llama-build\bin\Release\llama-server.exe'),
-        (Join-Path $Base 'third_party\llama.cpp\build\bin\llama-server.exe'),
-        (Join-Path $Base 'third_party\llama.cpp\build\bin\Release\llama-server.exe'),
-        (Join-Path $Base 'llama.cpp\build\bin\llama-server.exe'),
-        (Join-Path $Base 'llama.cpp\build\bin\Release\llama-server.exe')
+    $llamaRoots = @()
+    if ($env:LLAMA_CPP_DIR) { $llamaRoots += $env:LLAMA_CPP_DIR }
+    $llamaRoots += @(
+        (Join-Path $Base 'third_party\llama.cpp'),
+        (Join-Path $Base 'llama.cpp'),
+        (Join-Path $Base 'llama-build')
     )
+    foreach ($llamaRoot in ($llamaRoots | Select-Object -Unique)) {
+        $candidates += @(
+            (Join-Path $llamaRoot 'build\bin\llama-server.exe'),
+            (Join-Path $llamaRoot 'build\bin\Release\llama-server.exe'),
+            (Join-Path $llamaRoot 'build\bin\RelWithDebInfo\llama-server.exe'),
+            (Join-Path $llamaRoot 'bin\llama-server.exe'),
+            (Join-Path $llamaRoot 'bin\Release\llama-server.exe'),
+            (Join-Path $llamaRoot 'bin\RelWithDebInfo\llama-server.exe')
+        )
+    }
     $command = Get-Command llama-server.exe -ErrorAction SilentlyContinue
     if ($command) { $candidates += $command.Source }
     foreach ($candidate in ($candidates | Select-Object -Unique)) {
         if ($candidate -and (Test-Path -LiteralPath $candidate -PathType Leaf)) { return [IO.Path]::GetFullPath($candidate) }
     }
-    Write-Host 'No llama-server.exe was found in the usual build locations.' -ForegroundColor Yellow
-    Write-Host 'Set LLAMA_SERVER_EXE or enter the full path to your SM52 llama-server.exe.'
+    $sourceTree = $llamaRoots | Where-Object { Test-Path -LiteralPath $_ -PathType Container } | Select-Object -First 1
+    if ($sourceTree) {
+        Write-Host "Found llama.cpp source tree: $([IO.Path]::GetFullPath($sourceTree))" -ForegroundColor Cyan
+        Write-Host 'No built llama-server.exe exists in that source tree yet.' -ForegroundColor Yellow
+        Write-Host 'Build the SM52 server into build\bin (or set LLAMA_SERVER_EXE to an existing executable).'
+    } else {
+        Write-Host 'No llama.cpp source tree or llama-server.exe was found.' -ForegroundColor Yellow
+        Write-Host 'Set LLAMA_CPP_DIR to your llama.cpp checkout or LLAMA_SERVER_EXE to the executable.'
+    }
     $manual = Read-PathOrDefault 'llama-server.exe path'
+    if (-not $manual) { throw 'No llama-server.exe path was provided.' }
     if (-not (Test-Path -LiteralPath $manual -PathType Leaf)) { throw "llama-server.exe not found: $manual" }
     return [IO.Path]::GetFullPath($manual)
 }
@@ -388,7 +407,7 @@ if ($network -eq 2) {
     Write-Host "LAN API key: $apiKey" -ForegroundColor Yellow
     Write-Host 'Use this as Authorization: Bearer <key>. It is not written to the JSON.'
 }
-$openBrowser = Read-YesNo 'Open the llama.cpp web UI in a browser?' $true
+$openBrowser = Read-YesNo 'Open the server URL in a browser? (headless build has no embedded UI)' $false
 
 $launchArgs = New-Object 'System.Collections.Generic.List[string]'
 Add-Arg $launchArgs '-m' $info.First
@@ -404,6 +423,7 @@ Add-Arg $launchArgs '-np' ([string]$parallel)
 Add-Arg $launchArgs '--host' $hostAddress
 Add-Arg $launchArgs '--port' ([string]$port)
 [void]$launchArgs.Add('--jinja')
+[void]$launchArgs.Add('--no-ui')
 if ($apiKey) { Add-Arg $launchArgs '--api-key' $apiKey }
 
 $savedArgs = @($launchArgs | ForEach-Object { [string]$_ })
