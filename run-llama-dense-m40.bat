@@ -56,7 +56,8 @@ function Read-YesNo([string]$Prompt, [bool]$Default) {
 }
 
 function Read-PathOrDefault([string]$Prompt, [string]$Default = '') {
-    $answer = Read-Host (if ($Default) { "$Prompt [$Default]" } else { $Prompt })
+    $promptText = if ($Default) { "$Prompt [$Default]" } else { $Prompt }
+    $answer = Read-Host $promptText
     $raw = if ($null -eq $answer) { '' } else { $answer.Trim().Trim('"') }
     if (-not $raw) { return $Default }
     return $raw
@@ -126,6 +127,11 @@ function Read-GgufMetadata([string]$Path) {
         $meta = @{}
         for ($i = 0; $i -lt $kvCount; $i++) {
             $key = Read-GgufString $reader
+            # Tokenizer arrays can contain hundreds of thousands of strings. They
+            # are not needed for sizing or launching, and parsing them through
+            # PowerShell makes a several-GB GGUF appear to hang. GGUF writers
+            # conventionally place tokenizer metadata after model metadata.
+            if ($key -like 'tokenizer.*') { break }
             $type = $reader.ReadUInt32()
             $value = Read-GgufScalar $reader $type
             if ($null -ne $value) { $meta[$key] = $value }
@@ -175,12 +181,14 @@ function Get-GgufInfo([object]$First, [object[]]$Files) {
     if ($null -eq $headKv) { $headKv = $headCount }
     if ($null -eq $keyLength -and $headCount -and $embedding) { $keyLength = [int64]$embedding / [int64]$headCount }
     if ($null -eq $valueLength) { $valueLength = $keyLength }
+    $fileTypeValue = $null
+    if ($metadata.ContainsKey('general.file_type')) { $fileTypeValue = $metadata['general.file_type'] }
     [pscustomobject]@{
         First = $First.FullName
         Files = @($Files | Sort-Object Name | ForEach-Object FullName)
         Name = $name
         Architecture = $architecture
-        Quantization = Get-FileTypeName (if ($metadata.ContainsKey('general.file_type')) { $metadata['general.file_type'] } else { $null })
+        Quantization = Get-FileTypeName $fileTypeValue
         Bytes = Get-GgufSetBytes $Files
         Parts = $Files.Count
         TrainedContext = if ($trainedContext) { [int64]$trainedContext } else { 0 }
@@ -298,6 +306,7 @@ function Add-Arg([System.Collections.Generic.List[string]]$List, [string]$Name, 
 
 Banner
 $server = $null
+Write-Host 'Scanning GGUF metadata (model fields only)...' -ForegroundColor DarkGray
 $info = Choose-Gguf (Get-GgufSets $ModelInput)
 $plan = Get-ContextPlan $info
 $server = Find-LlamaServer $Root
@@ -349,7 +358,8 @@ Write-Host '  1) 256  - lowest VRAM / safest'
 Write-Host '  2) 512  - recommended for larger dense models'
 Write-Host '  3) 1024 - recommended for smaller models'
 Write-Host '  4) 2048 - experimental on this GPU'
-$batchPick = Read-Menu 'Prompt batch size' 1 4 (if ($batchDefault -eq 512) { 2 } else { 3 })
+$batchPickDefault = if ($batchDefault -eq 512) { 2 } else { 3 }
+$batchPick = Read-Menu 'Prompt batch size' 1 4 $batchPickDefault
 $batch = @(256,512,1024,2048)[$batchPick-1]
 $ubatch = [math]::Min($batch, 512)
 
@@ -388,7 +398,8 @@ Add-Arg $launchArgs '-b' ([string]$batch)
 Add-Arg $launchArgs '-ub' ([string]$ubatch)
 Add-Arg $launchArgs '-ctk' $kvType
 Add-Arg $launchArgs '-ctv' $kvType
-Add-Arg $launchArgs '-fa' (if ($flash) { 'on' } else { 'off' })
+$flashMode = if ($flash) { 'on' } else { 'off' }
+Add-Arg $launchArgs '-fa' $flashMode
 Add-Arg $launchArgs '-np' ([string]$parallel)
 Add-Arg $launchArgs '--host' $hostAddress
 Add-Arg $launchArgs '--port' ([string]$port)
