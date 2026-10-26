@@ -54,6 +54,8 @@ build-vision-cuda12.bat
 /engine-cuda12/
 /engine-maxwell/
 /engine-poly-maxwell/
+/engine-dsv41-maxwell/
+/engine-diffusiongemma-maxwell/
 /build-strata-maxwell.bat
 /build-vision-maxwell.bat
 /engine-poly/

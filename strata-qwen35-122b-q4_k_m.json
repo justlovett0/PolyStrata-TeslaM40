@@ -1,0 +1,22 @@
+{
+  "exe": "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1\\engine-poly-maxwell\\strata-poly.exe",
+  "args": [
+    "--model", "D:\\models\\Qwen35-122\\Q4_K_M\\Qwen3.5-122B-A10B-Q4_K_M-00001-of-00003.gguf",
+    "--max-context", "32768",
+    "--prompt-batch", "1024",
+    "--window", "1",
+    "--expert-profile", "D:\\polystrata-maxwell\\PolyStrata-data\\packs\\qwen35-122b-q4_k_m\\expert-profile.txt",
+    "--vram-reserve-mib", "1152",
+    "--no-draft"
+  ],
+  "cwd": "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1",
+  "tokenizer": "D:\\polystrata-maxwell\\PolyStrata-data\\packs\\qwen35-122b-q4_k_m\\tokenizer",
+  "model_name": "qwen3.5-122b-a10b-q4_k_m",
+  "display_name": "Qwen3.5 122B-A10B Q4_K_M",
+  "log": "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1\\strata-qwen35-122b-q4_k_m.log",
+  "lib_dirs": ["C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.0\\bin"],
+  "port": 8086,
+  "cuda": 12,
+  "gpu": 0,
+  "gpus_asked": true
+}

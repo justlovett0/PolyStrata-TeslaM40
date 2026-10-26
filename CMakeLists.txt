@@ -21,6 +21,7 @@ if(STRATA_ENABLE_SYCL)
   return()
 endif()
 add_compile_definitions(STRATA_VERSION="${PROJECT_VERSION}")
+option(STRATA_BUILD_DSV41 "Build the DeepSeek-V4.1 engine path (strata-dsv41)" OFF)
 # issue #31: release builds keep a PDB beside the exe (not shipped in it), so a minidump from a stalled engine can
 # be read back to the exact source line
 if(MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -665,6 +666,49 @@ if(STRATA_ENABLE_CUDA OR STRATA_ENABLE_HIP)
   target_link_libraries(strata-q36 PRIVATE strata_qwen35 ${_strata_gpu_runtime_target})
   target_link_libraries(strata PRIVATE strata_qwen35)
   target_compile_definitions(strata PRIVATE STRATA_HAVE_QWEN35=1)
+
+  # DeepSeek-V4.1-Flash uses its own Project Maya derived engine.  It cannot be
+  # routed through src/poly/deepseek4.cpp because V4.1 adds the disk-backed
+  # EnGram lookup and a different attention/routing graph.
+  if(STRATA_BUILD_DSV41 AND NOT STRATA_HIP_GFX906)
+    add_library(strata_dsv41_kernels STATIC
+      src/dsv41/vendor/exl3.cu src/dsv41/vendor/sampler.cu
+      src/dsv41/vendor/moe_win.cu src/dsv41/vendor/exl3_cpu.cpp)
+    if(NOT STRATA_ENABLE_HIP)
+      target_sources(strata_dsv41_kernels PRIVATE src/dsv41/vendor/exl3_legacy.cu)
+    endif()
+    target_include_directories(strata_dsv41_kernels PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/include ${_strata_gpu_include_directories})
+    target_link_libraries(strata_dsv41_kernels PUBLIC ${_strata_gpu_runtime_target})
+
+    add_executable(strata-dsv41
+      src/dsv41/ds4_main.cpp src/dsv41/ds4_model.cu src/dsv41/ds4_kernels.cu
+      src/dsv41/ds4_vision.cu src/dsv41/ds4_gguf.cu src/dsv41/ds4_gguf_cpu.cpp
+      src/dsv41/ds4_iq.cu src/dsv41/ds4_iq_cpu.cpp src/dsv41/ds4_tq.cu
+      src/dsv41/ds4_tq_cpu.cpp src/dsv41/ds4_gg_cpu.cpp src/dsv41/ds4_packinfo.cpp)
+    if(NOT STRATA_BUILD_ID)
+      execute_process(COMMAND git -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse --short=9 HEAD
+        OUTPUT_VARIABLE STRATA_BUILD_ID OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    endif()
+    if(NOT STRATA_BUILD_ID)
+      set(STRATA_BUILD_ID unknown)
+    endif()
+    set_source_files_properties(src/dsv41/ds4_main.cpp PROPERTIES
+      COMPILE_DEFINITIONS "DS4_BUILD_ID=\"${STRATA_BUILD_ID}\"")
+    target_include_directories(strata-dsv41 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include
+      ${_strata_gpu_include_directories} ${CMAKE_CURRENT_SOURCE_DIR}/third_party/ggml)
+    target_link_libraries(strata-dsv41 PRIVATE strata_dsv41_kernels
+      ${_strata_gpu_runtime_target} ${_strata_gpu_blas_target})
+    if(STRATA_EXPERIMENTAL_SM52)
+      target_compile_definitions(strata-dsv41 PRIVATE STRATA_DS4_NO_TC=1)
+    endif()
+    find_package(Threads REQUIRED)
+    target_link_libraries(strata-dsv41 PRIVATE Threads::Threads)
+    if(STRATA_NATIVE_EXPERTS)
+      target_link_libraries(strata-dsv41 PRIVATE strata_kernels_cpu)
+      target_compile_definitions(strata-dsv41 PRIVATE STRATA_DSV41_TQ_CPU=1)
+    endif()
+  endif()
 
   if(STRATA_ENABLE_HIP)
     enable_testing()
@@ -1341,7 +1385,8 @@ if(STRATA_NATIVE_EXPERTS)
   target_sources(strata_kernels_cpu PRIVATE src/kernels/cpu/native_expert.cpp src/kernels/cpu/iq_avx512.cpp
                                            src/kernels/cpu/iq_avx2.cpp src/kernels/cpu/kq_avx2.cpp
                                            src/kernels/cpu/kq_avx1.cpp src/kernels/cpu/q2_avx1.cpp src/kernels/cpu/iq_avx1.cpp
-                                           src/kernels/cpu/nvfp4_avx512.cpp src/kernels/cpu/nvfp4_avx2.cpp)
+                                           src/kernels/cpu/nvfp4_avx512.cpp src/kernels/cpu/nvfp4_avx2.cpp
+                                           src/kernels/cpu/tq_cpu.cpp src/kernels/cpu/tq_avx2.cpp src/kernels/cpu/tq_avx512.cpp)
   target_include_directories(strata_kernels_cpu PRIVATE third_party/ggml)
   if(MSVC)
     set_source_files_properties(src/kernels/cpu/iq_avx512.cpp src/kernels/cpu/nvfp4_avx512.cpp
@@ -1349,6 +1394,8 @@ if(STRATA_NATIVE_EXPERTS)
     set_source_files_properties(src/kernels/cpu/iq_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
     set_source_files_properties(src/kernels/cpu/kq_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
     set_source_files_properties(src/kernels/cpu/nvfp4_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+    set_source_files_properties(src/kernels/cpu/tq_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+    set_source_files_properties(src/kernels/cpu/tq_avx512.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX512")
     # the router lookahead's AVX1 dot (older CPUs; called behind cpu_avx1_ok): no FMA, no 256-bit integer ops
     set_source_files_properties(src/kernels/cpu/kq_avx1.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX")
     # the older CPUs' Q2_0 rows and activation quantizer (q2_avx1.cpp, issue #1699): 128-bit integer lanes,

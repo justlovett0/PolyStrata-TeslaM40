@@ -37,6 +37,15 @@ __device__ __forceinline__ int strata_dp4a(const int a, const int b, const int c
         : "+r"(r) : "r"(a), "r"(b));
     return r;
 }
+// CUDA also overloads __dp4a for unsigned byte lanes.  EXL3 uses that form to
+// sum four codebook bytes, so preserve its unsigned semantics on SM 5.2.
+__device__ __forceinline__ unsigned int strata_dp4a(const unsigned int a, const unsigned int b,
+                                                     const unsigned int c) {
+    return c + (a & 0xffu) * (b & 0xffu)
+             + ((a >> 8) & 0xffu) * ((b >> 8) & 0xffu)
+             + ((a >> 16) & 0xffu) * ((b >> 16) & 0xffu)
+             + (a >> 24) * (b >> 24);
+}
 #define STRATA_DP4A(a, b, c) strata_dp4a((a), (b), (c))
 #else
 #define STRATA_DP4A(a, b, c) __dp4a((a), (b), (c))

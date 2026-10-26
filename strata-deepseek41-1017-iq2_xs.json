@@ -1,0 +1,23 @@
+{
+  "exe": "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1\\engine-dsv41-maxwell\\strata-dsv41.exe",
+  "args": [
+    "--pack", "D:\\models\\deep4-1-1017-rco-2bxs\\maya-ds4",
+    "--max-context", "32768",
+    "--reserve-mib", "1152",
+    "--experts", "auto",
+    "--dspark", "none"
+  ],
+  "cwd": "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1",
+  "tokenizer": "D:\\models\\deep4-1-1017-rco-2bxs\\maya-ds4\\tokenizer",
+  "model_name": "deepseek-v4.1-flash-1017-gsq-rco-iq2_xs",
+  "display_name": "DeepSeek V4.1 Flash 1017 GSQ-RCO IQ2_XS",
+  "log": "D:\\polystrata-maxwell\\PolyStrata-0.1.44.1\\strata-deepseek41-1017.log",
+  "lib_dirs": [
+    "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.0\\bin",
+    "C:\\Program1\\VC\\Redist\\MSVC\\14.39.33519\\x64\\Microsoft.VC143.CRT"
+  ],
+  "port": 8088,
+  "cuda": 12,
+  "gpu": 0,
+  "gpus_asked": true
+}

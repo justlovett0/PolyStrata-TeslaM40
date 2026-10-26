@@ -17,7 +17,7 @@ Windows Server, driver 528.89, and CUDA 12.0.
 
 > [!IMPORTANT]
 > **Start this fork with [`run-polystrata-m40.bat`](run-polystrata-m40.bat).**
-> It is the main launcher for this repository. It selects one of the four tested presets, asks about context,
+> It is the main launcher for this repository. It selects an M40-tuned preset, asks about context,
 > drafting, vision, KV compression and network access, then starts the normal PolyStrata web server and API.
 > The older `run-<model>.bat` files remain useful as fixed, model specific shortcuts.
 
@@ -38,7 +38,7 @@ The launcher writes the final, reviewable configuration to `strata-m40-last-run.
 optimized preset. Localhost is the default. LAN mode binds to `0.0.0.0` and requires an API key; a random key is
 generated when none is entered.
 
-## The five M40 presets
+## M40 presets
 
 | Menu | Model | Engine | Known configuration | M40 validation |
 | ---: | --- | --- | --- | --- |
@@ -47,6 +47,10 @@ generated when none is entered.
 | 3 | NVIDIA Nemotron 3.5 Bolt 74B-A9B UD-Q4_K_XL | `strata-poly.exe` | three shards, batch 1, window 1 | Loaded 50.2 GB; `OK` at about 10.6 tok/s |
 | 4 | Qwen3.6 35B-A3B UD-Q4_K_S | `strata-poly.exe` | embedded MTP layer, batch 2,048, tail skip 6 | 1,800-token cold run at 44.6 tok/s; follow-up request passed |
 | 5 | Flint Preview UD-Q3_K_XL | `strata-poly.exe` | native SM52 Flint path, FP16 hybrid KV, all experts resident | Coherent 128-token answer at 39.5 tok/s, 180 W |
+| 6 | Qwen3.5 122B-A10B Q4_K_M | `strata-poly.exe` | three shards, 32K default, routed expert cache | SM52 engine generation passed; full API validation in progress |
+| 7 | LFM2.5 24B-A2B UD-Q4_K_XL | `strata-poly.exe` | all experts fit in the M40 budget, 64K default | Coherent OpenAI API answer at about 54 tok/s |
+| 8 | DeepSeek V4.1 Flash 1017 GSQ-RCO IQ2_XS | `strata-dsv41.exe` | dedicated DSV4.1 engine and disk-backed EnGram lookup | SM52 build and executable smoke test passed; full model awaits EnGram |
+| pending | DiffusionGemma 26B-A4B Q4_K_M | dedicated diffusion engine | block-diffusion decoder and automatic noncausal context sizing | Native SM52 build and 2K model startup passed; generation untested |
 
 The last menu item is **Try an unsupported model**. It selects a GGUF, extracts its embedded tokenizer, builds a
 temporary `strata-poly` configuration, and attempts to start it. That mode is a compatibility probe. It cannot make
@@ -79,10 +83,9 @@ Prompts are shown one at a time for:
 - vision input, enabled only when a prepared PolyStrata vision section and encoder are available;
 - compressed KV cache (`q8_0` for `strata-poly`, `int8` for the Strata engine);
 - the in-memory API monitor;
-- browser launch and lazy model loading;
 - port and localhost/LAN binding.
 
-None of the four current local packs contains vision encoder assets. Choosing vision explains this and accepts a
+None of the current local packs contains vision encoder assets. Choosing vision explains this and accepts a
 prepared vision-section JSON rather than inventing paths to files that do not exist.
 
 ## Why this fork exists
@@ -174,6 +177,18 @@ top-6 routing over 256 experts, an always-active shared expert, and the GGUF's p
 and RoPE patterns. Learned denominator sinks are included in both decode and prompt softmax paths. Sliding layers
 keep a 513-token ring while only the 14 full-attention layers grow with context.
 
+### New architecture lanes
+
+- **Qwen3.5 MoE** and **LFM2.5 MoE** use the Maxwell `strata-poly` build. Their presets include extracted embedded
+  tokenizers, conservative prompt batches and the 21,888 MiB M40 ceiling.
+- **DeepSeek V4.1 Flash 1017** uses a separate `strata-dsv41.exe` compiled for SM 5.2. Its GSQ-RCO backbone remains
+  in the downloaded GGUF shards while a zero-copy Maya pack indexes those files. The model also requires the
+  110.6 GB EnGram lookup and the first Unsloth Q8 shard for token-map metadata; the metadata shard's weights are
+  not duplicated into the pack.
+- **DiffusionGemma** is a block-diffusion model rather than an autoregressive GGUF. It uses the llama.cpp
+  DiffusionGemma decoder ported to native SM 5.2, with tensor-core and flash-attention assumptions disabled and
+  an automatically sized noncausal context for the M40's remaining VRAM.
+
 ## How it fits together
 
 ```mermaid
@@ -186,9 +201,13 @@ flowchart LR
     DDG -->|bounded text results| SERVER
     SERVER --> S{Selected engine}
     S -->|Swift| CORE[engine-maxwell/strata.exe]
-    S -->|GLM / Nemotron / Qwen3.6 / custom| POLY[engine-poly-maxwell/strata-poly.exe]
+    S -->|GLM / Nemotron / Qwen3.x / LFM / custom| POLY[engine-poly-maxwell/strata-poly.exe]
+    S -->|DeepSeek V4.1| DSV[engine-dsv41-maxwell/strata-dsv41.exe]
+    S -->|DiffusionGemma| DIFF[engine-diffusiongemma-maxwell]
     CORE --> GPU[Tesla M40 SM 5.2]
     POLY --> GPU
+    DSV --> GPU
+    DIFF --> GPU
     POLY --> RAM[System RAM expert backing]
 ```
 
@@ -245,6 +264,8 @@ quantization or optional fused path.
 | `strata-*.json` | fixed optimized presets |
 | `engine-maxwell/` | native SM52 Strata engine |
 | `engine-poly-maxwell/` | native SM52 `strata-poly` engine |
+| `engine-dsv41-maxwell/` | native SM52 DeepSeek V4.1 engine |
+| `engine-diffusiongemma-maxwell/` | native SM52 DiffusionGemma engine |
 | `src/poly/` | PolyStrata model backends, including Nemotron-H |
 | `include/strata/kernels/maxwell_compat.hpp` | isolated Maxwell compatibility helpers |
 | `tools/maxwell_smoke.cu` | physical GPU/CUDA/cuBLAS probe |

@@ -156,13 +156,16 @@ $presets = @(
     [pscustomobject]@{Key='glm'; Name='GLM 5.3 Flash UD-IQ3_XXS'; Config='strata-glm-ud-iq3_xxs.json'; Port=8081; Rec=32768; Near=98304; Draft=$false},
     [pscustomobject]@{Key='nemotron'; Name='NVIDIA Nemotron 3.5 Bolt 74B-A9B UD-Q4_K_XL'; Config='strata-nemotron-ud-q4_k_xl.json'; Port=8082; Rec=32768; Near=65536; Draft=$false},
     [pscustomobject]@{Key='qwen36'; Name='Qwen3.6 35B-A3B UD-Q4_K_S'; Config='strata-qwen36-ud-q4_k_s.json'; Port=8083; Rec=131072; Near=196608; Draft=$true},
-    [pscustomobject]@{Key='flint'; Name='Flint Preview UD-Q3_K_XL'; Config='strata-flint-ud-q3_k_xl.json'; Port=8084; Rec=65536; Near=131072; Draft=$false}
+    [pscustomobject]@{Key='flint'; Name='Flint Preview UD-Q3_K_XL'; Config='strata-flint-ud-q3_k_xl.json'; Port=8084; Rec=65536; Near=131072; Draft=$false},
+    [pscustomobject]@{Key='qwen35'; Name='Qwen3.5 122B-A10B Q4_K_M'; Config='strata-qwen35-122b-q4_k_m.json'; Port=8086; Rec=32768; Near=65536; Draft=$false},
+    [pscustomobject]@{Key='lfm25'; Name='LFM2.5 24B-A2B UD-Q4_K_XL'; Config='strata-lfm25-24b-q4_k_xl.json'; Port=8087; Rec=65536; Near=131072; Draft=$false},
+    [pscustomobject]@{Key='deepseek41'; Name='DeepSeek V4.1 Flash 1017 GSQ-RCO IQ2_XS'; Config='strata-deepseek41-1017-iq2_xs.json'; Port=8088; Rec=32768; Near=65536; Draft=$false}
 )
 Write-Host 'Optimized M40 presets:' -ForegroundColor Cyan
 for ($i=0; $i -lt $presets.Count; $i++) { Write-Host ("  {0}) {1}" -f ($i+1), $presets[$i].Name) }
-Write-Host '  6) Try an unsupported GGUF model (experimental strata-poly path)' -ForegroundColor Yellow
-$selection = Read-Menu 'Model' 1 6 4
-$custom = $selection -eq 6
+Write-Host ("  {0}) Try an unsupported GGUF model (experimental strata-poly path)" -f ($presets.Count + 1)) -ForegroundColor Yellow
+$selection = Read-Menu 'Model' 1 ($presets.Count + 1) 4
+$custom = $selection -eq ($presets.Count + 1)
 $Python = Find-Python
 $env:PYTHONPATH = (Join-Path $Root '.tools\pydeps') + ';' + (Join-Path $Root '.venv\Lib\site-packages') + ';' + $env:PYTHONPATH
 $PythonVersion = (& $Python -c "import platform; print(platform.python_version())").Trim()
@@ -174,9 +177,16 @@ if (-not $custom) {
     $config = Get-Content -LiteralPath $basePath -Raw | ConvertFrom-Json
     $argsList = New-Object 'System.Collections.Generic.List[string]'
     foreach ($a in $config.args) { [void]$argsList.Add([string]$a) }
-    $modelArg = if ((Get-ArgIndex $argsList '--model') -ge 0) { '--model' } else { '--native' }
-    $modelPath = $argsList[(Get-ArgIndex $argsList $modelArg)+1]
-    if (-not (Test-Path -LiteralPath $modelPath -PathType Leaf)) {
+    if ($preset.Key -eq 'deepseek41') {
+        & (Join-Path $Root 'tools\prepare_deepseek41_launch.ps1') -ConfigPath $basePath
+        if ($LASTEXITCODE -ne 0) { throw 'DeepSeek V4.1 prerequisites are incomplete; use the command shown above.' }
+        $modelArg = $null
+        $modelPath = 'D:\models\deep4-1-1017-rco-2bxs\DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ2_XS-00001-of-00004.gguf'
+    } else {
+        $modelArg = if ((Get-ArgIndex $argsList '--model') -ge 0) { '--model' } else { '--native' }
+        $modelPath = $argsList[(Get-ArgIndex $argsList $modelArg)+1]
+    }
+    if ($modelArg -and -not (Test-Path -LiteralPath $modelPath -PathType Leaf)) {
         Write-Host "The preset model path is missing: $modelPath" -ForegroundColor Yellow
         $folder = Read-Host 'Enter the folder containing its GGUF file(s), or the full GGUF path'
         $modelPath = Select-Gguf $folder ([IO.Path]::GetFileName($modelPath))
@@ -251,7 +261,15 @@ Set-EngineArg $argsList '--max-context' ([string]$context)
 Write-Host
 $draft = Read-YesNo 'Enable speculative drafting / MTP where this model supports it?' $draftDefault
 $isPoly = [IO.Path]::GetFileName($config.exe).ToLowerInvariant() -eq 'strata-poly.exe'
-if ($isPoly) {
+$isDsv41 = [IO.Path]::GetFileName($config.exe).ToLowerInvariant() -eq 'strata-dsv41.exe'
+if ($isDsv41) {
+    $dspark = Get-ChildItem 'D:\models' -Filter 'dspark-*.gguf' -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($draft -and $dspark) { Set-EngineArg $argsList '--dspark' 'auto' }
+    else {
+        Set-EngineArg $argsList '--dspark' 'none'
+        if ($draft) { Write-Host 'No DSpark drafter GGUF is installed; DeepSeek will run without speculative drafting.' -ForegroundColor Yellow; $draft=$false }
+    }
+} elseif ($isPoly) {
     if ($draft) { Remove-Flag $argsList '--no-draft' } else { Add-Flag $argsList '--no-draft' }
 } else {
     if ($draft) { Set-EngineArg $argsList '--spec' '4' } else { Set-EngineArg $argsList '--spec' '1' }
@@ -270,14 +288,14 @@ if ($vision -and -not $config.PSObject.Properties['vision']) {
     $config.PSObject.Properties.Remove('vision')
 }
 
-$flintFp16Kv = -not $custom -and $preset.Key -eq 'flint'
-if ($flintFp16Kv) {
-    Write-Host 'Flint currently uses its optimized FP16 hybrid KV cache; Q8 KV is not enabled for this backend.' -ForegroundColor Cyan
+$fixedFp16Kv = -not $custom -and $preset.Key -in @('flint','deepseek41')
+if ($fixedFp16Kv) {
+    Write-Host 'This backend uses its required FP16 KV cache; Q8 KV is not available for it.' -ForegroundColor Cyan
     $compressedKv = $false
 } else {
     $compressedKv = Read-YesNo 'Use compressed Q8/int8 KV cache for more long-context headroom?' ($context -ge 131072)
 }
-if ($compressedKv) {
+if ($compressedKv -and -not $isDsv41) {
     Set-EngineArg $argsList '--kv' $(if ($isPoly) {'q8_0'} else {'int8'})
 } else { Remove-EngineArg $argsList '--kv' }
 
